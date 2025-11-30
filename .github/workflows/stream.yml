@@ -1,0 +1,30 @@
+name: Telegram Cinema Stream
+
+on:
+  workflow_dispatch:
+    inputs:
+      movie_url:
+        description: 'لینک مستقیم دانلود فیلم (MKV یا MP4)'
+        required: true
+        default: 'http://...'
+
+jobs:
+  stream-to-telegram:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # تا ۶ ساعت اجازه پخش میده
+
+    steps:
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Start Cinema 🍿
+        run: |
+          echo "Connecting to Telegram..."
+          
+          # دستور جادویی پخش زنده
+          # -re: سرعت واقعی (Realtime)
+          # -c copy: بدون فشار به CPU (فقط کپی کردن تصویر و صدا)
+          
+          ffmpeg -re -i "${{ github.event.inputs.movie_url }}" \
+          -c:v copy -c:a copy \
+          -f flv "${{ secrets.TELEGRAM_RTMP_URL }}"
