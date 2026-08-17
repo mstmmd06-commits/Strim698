@@ -1,4 +1,4 @@
-name: linux-mint-desktop
+name: ubuntu-gnome-desktop
 
 on:
   workflow_dispatch:
@@ -12,32 +12,49 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 1. Install Linux Mint XFCE Desktop
+      - name: 1. Install GNOME Desktop (Modern Ubuntu UI)
         run: |
           echo "=========================================="
-          echo "  Installing Linux Mint XFCE Environment"
+          echo "  Installing Ubuntu GNOME Desktop"
           echo "=========================================="
           sudo apt-get update -qq
-          sudo apt-get install -y xfce4 xfce4-goodies x11vnc xvfb \
-            gnome-terminal vim curl wget git unzip
-          echo "✅ Desktop installed successfully."
+          
+          # نصب GNOME کامل + ابزارهای ضروری
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            ubuntu-desktop \
+            x11vnc \
+            xvfb \
+            dbus-x11 \
+            gnome-terminal \
+            firefox \
+            vim \
+            curl \
+            wget \
+            git \
+            unzip
+          
+          echo "✅ GNOME Desktop installed successfully."
 
-      - name: 2. Setup Virtual Display & VNC
+      - name: 2. Setup Virtual Display & GNOME Session
         run: |
           echo "Starting virtual display (Xvfb)..."
-          Xvfb :99 -screen 0 1280x720x24 &
+          Xvfb :99 -screen 0 1280x720x24 -ac &
           export DISPLAY=:99
-          
-          echo "Starting XFCE desktop..."
-          startxfce4 &
           sleep 2
+          
+          echo "Starting D-Bus..."
+          eval $(dbus-launch --sh-syntax)
+          
+          echo "Starting GNOME desktop..."
+          gnome-session --session=ubuntu &
+          sleep 5
           
           echo "Setting VNC password..."
           mkdir -p ~/.vnc
           x11vnc -storepasswd "Cynet@2026" ~/.vnc/passwd
           
           echo "Starting x11vnc server on port 5900..."
-          x11vnc -display :99 -usepw -forever -shared -rfbport 5900 &
+          x11vnc -display :99 -usepw -forever -shared -rfbport 5900 -noxdamage &
           sleep 3
           echo "✅ VNC Server running on port 5900."
 
@@ -57,17 +74,16 @@ jobs:
           echo "  Installing Development Tools"
           echo "=========================================="
           
-          # Node.js و npm
+          # Node.js 20.x
           echo "Installing Node.js..."
           curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
           sudo apt-get install -y nodejs
           
-          # Python و pip
+          # Python
           echo "Installing Python..."
           sudo apt-get install -y python3 python3-pip python3-venv
           
           # ابزارهای اضافه
-          echo "Installing additional tools..."
           sudo apt-get install -y build-essential jq
           
           echo "✅ Development tools installed:"
@@ -88,7 +104,7 @@ jobs:
           sleep 10
           
           echo "=========================================================="
-          echo "  >>> YOUR LINUX MINT DESKTOP IS READY! <<<" -e
+          echo "  >>> YOUR UBUNTU GNOME DESKTOP IS READY! <<<"
           echo "=========================================================="
           echo ""
           grep "trycloudflare.com" cf_tunnel.log || echo "⏳ Waiting for tunnel..."
@@ -96,14 +112,14 @@ jobs:
           echo "=========================================================="
           echo "  📝 VNC Password: Cynet@2026"
           echo "  🌐 Resolution: 1280x720"
-          echo "  💻 Environment: Linux Mint XFCE"
+          echo "  💻 Environment: Ubuntu GNOME (Modern UI)"
           echo "=========================================================="
           echo ""
           echo "  📌 Instructions:"
           echo "  1. Copy the .trycloudflare.com URL above"
           echo "  2. Open it in your browser"
           echo "  3. Click 'Connect' and enter password"
-          echo "  4. Enjoy your Linux desktop!"
+          echo "  4. Enjoy your modern Ubuntu desktop!"
           echo "=========================================================="
 
       - name: 6. Simulate Build Process (Cover Story)
