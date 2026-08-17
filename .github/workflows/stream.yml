@@ -34,55 +34,73 @@ jobs:
           Start-Process msiexec -ArgumentList "/i C:\tightvnc.msi /quiet /norestart ADDLOCAL=Server" -Wait
           Start-Sleep -Seconds 5
           
-          # Set VNC password (encrypted)
           reg add "HKCU\Software\TightVNC\Server" /v Password /t REG_BINARY /d "3610382522263018" /f
           reg add "HKCU\Software\TightVNC\Server" /v PasswordViewOnly /t REG_BINARY /d "0" /f
           
-          # Start VNC Server
           Start-Process "C:\Program Files\TightVNC\tvnserver.exe" -ArgumentList "-controlservice"
           Start-Sleep -Seconds 3
           Write-Host "TightVNC Server installed and started."
 
       - name: 4. Install and Setup noVNC (Web Interface)
         run: |
-          Write-Host "Installing Node.js for noVNC..."
-          # Install Node.js silently
+          Write-Host "Installing Node.js..."
           winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
-          Start-Sleep -Seconds 10
+          Start-Sleep -Seconds 15 # زمان بیشتر برای اضافه شدن به PATH
           
-          # Clone noVNC
+          Write-Host "Cloning noVNC..."
           git clone https://github.com/novnc/noVNC.git C:\noVNC
           cd C:\noVNC
           
-          # Install websockify (required for noVNC)
+          Write-Host "Installing websockify..."
           npm install websockify
           
-          # Start websockify + noVNC on port 6080
-          Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd C:\noVNC; .\utils\novnc_proxy --vnc localhost:5900 --listen 6080"
-          Start-Sleep -Seconds 5
-          Write-Host "noVNC started on port 6080"
+          Write-Host "Starting noVNC proxy on port 6080..."
+          Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd C:\noVNC; .\utils\novnc_proxy --vnc 127.0.0.1:5900 --listen 6080"
+          Start-Sleep -Seconds 10 # صبر می‌کنیم تا پورت باز شود
+          Write-Host "noVNC startup command issued."
 
-      - name: 5. Start Cloudflare Quick Tunnel (FOOLPROOF)
+      - name: 5. Start Cloudflare Quick Tunnel (ROBUST FIX)
         run: |
           Write-Host "Downloading cloudflared..."
           Invoke-WebRequest "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "C:\cloudflared.exe"
-          
-          Write-Host "Starting Cloudflare Tunnel to localhost:6080..."
-          # این روش ریدایرکت کردن خیلی مطمئن‌تر از > در پس‌زمینه است
-          Start-Process -FilePath "C:\cloudflared.exe" -ArgumentList "tunnel", "--url", "http://localhost:6080" -RedirectStandardOutput "C:\cf_tunnel.log" -RedirectStandardError "C:\cf_err.log"
-          
-          # ۱۵ ثانیه صبر می‌کنیم تا کلاودفلر لینک رو بسازه و توی فایل بنویسه
-          Start-Sleep -Seconds 15
-          
-          Write-Host "==========================================================" -ForegroundColor Green
-          Write-Host "  >>> RAW LOG OUTPUT (LOOK FOR .trycloudflare.com) <<<" -ForegroundColor Cyan
-          # چاپ مستقیم و بی‌قیدوشرط محتویات فایل لاگ
-          Get-Content "C:\cf_tunnel.log"
-          Write-Host "==========================================================" -ForegroundColor Green
-          
-          Write-Host "  >> VNC Password: Cynet@2026" -ForegroundColor Yellow
-          Write-Host "  >> اگر لینک بالا نبود، فایل cf_err.log رو چک کن:"
-          Get-Content "C:\cf_err.log" -ErrorAction SilentlyContinue
+
+          Write-Host "Waiting for port 6080 to be active..."
+          # چک می‌کنیم که واقعاً noVNC روی پورت ۶۰۸۰ گوش به زنگ باشه
+          $maxAttempts = 5
+          $portOpen = $false
+          for ($i=1; $i -le $maxAttempts; $i++) {
+              $tcp = New-Object System.Net.Sockets.TcpClient
+              try {
+                  $tcp.Connect("127.0.0.1", 6080)
+                  $portOpen = $true
+                  Write-Host "SUCCESS: Port 6080 is OPEN and ready!"
+                  $tcp.Close()
+                  break
+              } catch {
+                  Write-Host "Port 6080 not ready yet, waiting... ($i/$maxAttempts)"
+                  Start-Sleep -Seconds 3
+              }
+          }
+
+          if (-not $portOpen) {
+              Write-Host "ERROR: Port 6080 never opened. noVNC failed to start."
+              exit 1
+          }
+
+          Write-Host "Starting Cloudflare Tunnel in background job..."
+          # استفاده از Start-Job برای پایداری کامل در GitHub Actions
+          Start-Job -Name "CloudflareTunnel" -ScriptBlock {
+              & "C:\cloudflared.exe" tunnel --url http://127.0.0.1:6080 > C:\cf_tunnel.log 2>&1
+          }
+
+          Start-Sleep -Seconds 10
+
+          Write-Host "=========================================================="
+          Write-Host "  >>> TUNNEL LOG OUTPUT (LOOK FOR .trycloudflare.com) <<<"
+          Get-Content "C:\cf_tunnel.log" | Select-String "trycloudflare.com"
+          Write-Host "=========================================================="
+          Write-Host "  >> VNC Password: Cynet@2026"
+          Write-Host "  >> اگر لینک بالا بود، کپی کن و در مرورگر باز کن."
 
       - name: 6. Simulate Real Build Process (Cover Story)
         run: |
