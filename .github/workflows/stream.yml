@@ -1,4 +1,4 @@
-name: Ubuntu GNOME + Tailscale VNC
+name: Ubuntu GNOME + Tailscale VNC (FIXED)
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 1. Install Ubuntu GNOME Desktop (Lightweight)
+      - name: 1. Install Ubuntu GNOME Desktop
         run: |
           echo "Installing Ubuntu GNOME Desktop..."
           sudo apt-get update -qq
@@ -28,7 +28,7 @@ jobs:
             curl \
             wget \
             git
-          echo "✅ GNOME Desktop installed (much lighter than Windows!)"
+          echo "✅ GNOME Desktop installed."
 
       - name: 2. Setup Virtual Display & VNC Server
         run: |
@@ -50,12 +50,12 @@ jobs:
           echo "Starting x11vnc server on port 5900..."
           x11vnc -display :99 -usepw -forever -shared -rfbport 5900 -noxdamage &
           sleep 3
-          echo "✅ VNC Server running on port 5900 (Ubuntu is WAY faster than Windows!)"
+          echo "✅ VNC Server running on port 5900."
 
-      - name: 3. Install & Connect Tailscale VPN
+      - name: 3. Install & Connect Tailscale VPN (THE FIX)
         uses: tailscale/github-action@v2
         with:
-          auth-key: ${{ secrets.TAILSCALE_AUTHKEY }}
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }} # ✅ اینجا اصلاح شد: authkey (بدون خط تیره)
           version: "latest"
 
       - name: 4. Get Tailscale IP and Show Connection Info
@@ -73,11 +73,6 @@ jobs:
           echo "=========================================================="
           echo "  >> Open your VNC Viewer (RealVNC, TigerVNC, etc.)"
           echo "  >> Connect to: $TS_IP:5900"
-          echo "=========================================================="
-          echo ""
-          echo "  🚀 Ubuntu GNOME uses ~800MB RAM vs Windows ~2GB!"
-          echo "  🚀 Boot time: ~15 seconds vs Windows ~40 seconds!"
-          echo "  🚀 No black screen issues - TCP works perfectly!"
           echo "=========================================================="
 
       - name: 5. Keep Server Alive (6 Hours)
