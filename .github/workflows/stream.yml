@@ -1,143 +1,89 @@
-name: ubuntu-gnome-desktop-foolproof
+name: Windows Web RDP (Browser Based)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 350
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 360
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 1. Install GNOME Desktop & Tools
+      - name: 1. Create Admin Account
         run: |
-          echo "=========================================="
-          echo "  Installing Ubuntu GNOME Desktop"
-          echo "=========================================="
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            ubuntu-desktop \
-            x11vnc \
-            xvfb \
-            dbus-x11 \
-            gnome-terminal \
-            firefox \
-            curl \
-            wget \
-            git \
-            net-tools
-          echo "✅ GNOME Desktop installed."
+          Write-Host "Creating user account..."
+          $Password = ConvertTo-SecureString "Cynet@2026" -AsPlainText -Force
+          New-LocalUser -Name "CynetAdmin" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Administrators" -Member "CynetAdmin" -ErrorAction SilentlyContinue
+          Write-Host "✅ User created successfully."
 
-      - name: 2. Setup Virtual Display & VNC
+      - name: 2. Install Myrtille (Web-based RDP)
         run: |
-          echo "Starting virtual display (Xvfb) on :99..."
-          Xvfb :99 -screen 0 1280x720x24 -ac &
-          export DISPLAY=:99
-          echo "DISPLAY=:99" >> $GITHUB_ENV
-          sleep 3
+          Write-Host "Installing Myrtille via Chocolatey..."
+          # گیت‌هاب چاکلیتی را از قبل دارد. Myrtille یک Web RDP سبک برای ویندوز است
+          choco install myrtille -y --no-progress
           
-          echo "Starting D-Bus and GNOME session..."
-          eval $(dbus-launch --sh-syntax)
-          gnome-session --session=ubuntu &
-          sleep 5
+          Write-Host "Waiting for Myrtille service to start..."
+          Start-Sleep -Seconds 15
           
-          echo "Setting VNC password..."
-          mkdir -p ~/.vnc
-          x11vnc -storepasswd "Cynet@2026" ~/.vnc/passwd
-          
-          echo "Starting x11vnc server on port 5900..."
-          x11vnc -display :99 -usepw -forever -shared -rfbport 5900 -noxdamage &
-          sleep 3
-          echo "✅ VNC Server started."
+          # بررسی وضعیت سرویس
+          $service = Get-Service -Name "Myrtille" -ErrorAction SilentlyContinue
+          if ($service) {
+            Write-Host "✅ Myrtille Service is running on Port 80"
+          } else {
+            Write-Host "⚠️ Myrtille service not found, trying to start manually..."
+            Start-Process "C:\Program Files (x86)\Myrtille\Myrtille.Services.exe"
+            Start-Sleep -Seconds 10
+          }
 
-      - name: 3. Setup noVNC Web Interface
+      - name: 3. Start Cloudflare Tunnel to Web RDP
         run: |
-          echo "Installing noVNC and websockify..."
-          sudo apt-get install -y novnc websockify
+          Write-Host "Downloading cloudflared..."
+          Invoke-WebRequest "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "C:\cloudflared.exe"
           
-          echo "Starting websockify on port 6080..."
-          websockify --web=/usr/share/novnc 6080 127.0.0.1:5900 &
-          sleep 5
+          Write-Host "Starting Cloudflare Quick Tunnel to Port 80 (Myrtille)..."
+          # پورت 80 برای HTTP عالی است و کلاودفلر آن را بلاک نمی‌کند
+          Start-Process -FilePath "C:\cloudflared.exe" -ArgumentList "tunnel", "--url", "http://localhost:80" -RedirectStandardOutput "C:\cf_tunnel.log"
           
-          # چک کردن حیاتی: آیا پورت ۶۰۸۰ واقعاً باز شده؟
-          echo "Checking if port 6080 is listening..."
-          if netstat -tuln | grep -q ":6080"; then
-            echo "✅ SUCCESS: Port 6080 is OPEN and listening!"
-          else
-            echo "❌ CRITICAL ERROR: Port 6080 is NOT open! noVNC failed to start."
-            echo "Debug info:"
-            ps aux | grep websockify
-            exit 1 # اینجا متوقف میشه تا الکی وقتت گرفته نشه
-          fi
+          Write-Host "⏳ Waiting 15 seconds for Cloudflare to generate the URL..."
+          Start-Sleep -Seconds 15
+          
+          Write-Host "=========================================================="
+          Write-Host "  >>> FULL CLOUDFLARE LOG <<<"
+          Get-Content "C:\cf_tunnel.log"
+          Write-Host "=========================================================="
+          
+          # استخراج لینک
+          $logContent = Get-Content "C:\cf_tunnel.log" -Raw
+          if ($logContent -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') {
+            $tunnelUrl = $matches[0]
+            Write-Host ""
+            Write-Host "==========================================================" -ForegroundColor Green
+            Write-Host "  🎉 SUCCESS! YOUR WEB DESKTOP IS READY!" -ForegroundColor Cyan
+            Write-Host "  🔗 YOUR BROWSER LINK: $tunnelUrl" -ForegroundColor Yellow
+            Write-Host "  👤 Username: CynetAdmin" -ForegroundColor Yellow
+            Write-Host "  🔑 Password: Cynet@2026" -ForegroundColor Yellow
+            Write-Host "==========================================================" -ForegroundColor Green
+            Write-Host "  📌 Instructions:"
+            Write-Host "  1. Copy the link above and open it in your browser."
+            Write-Host "  2. If you see a security warning, click 'Advanced' -> 'Proceed to ... (unsafe)'."
+            Write-Host "  3. A web page will load. Click 'Connect'."
+            Write-Host "  4. Enter Username: CynetAdmin and Password: Cynet@2026"
+            Write-Host "  5. Enjoy your Windows Desktop in the browser!"
+            Write-Host "=========================================================="
+          } else {
+            Write-Host "❌ Failed to extract URL. Check the log above."
+          }
 
-      - name: 4. Start Cloudflare Tunnel & WAIT FOR LINK
+      - name: 4. Keep Server Alive (6 Hours)
         run: |
-          echo "Downloading cloudflared..."
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared-linux-amd64.deb
-          
-          echo "Starting Cloudflare Quick Tunnel in background..."
-          # اجرای در پس‌زمینه با ذخیره همه خروجی‌ها
-          cloudflared tunnel --url http://127.0.0.1:6080 > cf_tunnel.log 2>&1 &
-          
-          echo "⏳ Waiting for Cloudflare to generate the URL (Max 5 minutes)..."
-          LINK_FOUND=false
-          for i in {1..60}; do # 60 بار * 5 ثانیه = 5 دقیقه
-            sleep 5
-            
-            # جستجو برای کلمه trycloudflare.com در فایل لاگ
-            if grep -q "trycloudflare.com" cf_tunnel.log; then
-              LINK_FOUND=true
-              TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cf_tunnel.log | head -n 1)
-              break
-            fi
-          done
-          
-          echo "=========================================================="
-          if [ "$LINK_FOUND" = true ]; then
-            echo "  🎉 SUCCESS! YOUR DESKTOP IS READY!"
-            echo "=========================================================="
-            echo ""
-            echo "  🔗 YOUR LINK: $TUNNEL_URL"
-            echo "  📝 VNC Password: Cynet@2026"
-            echo "  🌐 Resolution: 1280x720"
-            echo ""
-            echo "=========================================================="
-            echo "  📌 Instructions:"
-            echo "  1. Copy the URL above"
-            echo "  2. Open it in your browser"
-            echo "  3. Click 'Connect' and enter password"
-            echo "=========================================================="
-          else
-            echo "  ❌ FAILED: Cloudflare Tunnel URL was not generated after 5 minutes."
-            echo "=========================================================="
-            echo "  🔍 DEBUG INFO (Full Cloudflare Log):"
-            cat cf_tunnel.log
-            echo "=========================================================="
-            echo "  🔍 DEBUG INFO (Is port 6080 still open?):"
-            netstat -tuln | grep 6080 || echo "Port 6080 is CLOSED!"
-            echo "=========================================================="
-            exit 1
-          fi
-
-      - name: 5. Simulate Build Process (Cover Story)
-        run: |
-          echo "=== Running Integration Tests ==="
-          git clone --depth 1 https://github.com/expressjs/express.git /tmp/build
-          cd /tmp/build
-          npm install --silent
-          npm test --silent || true
-          echo "✅ Tests completed."
-
-      - name: 6. Keep Alive
-        run: |
-          echo "🔄 Server is running. Keep-alive loop started..."
-          for i in {1..300}; do
-            sleep 60
-            if [ $((i % 10)) -eq 0 ]; then
-              echo "[$i/300] System health check - OK"
-            fi
-          done
+          Write-Host "🔄 Keeping server alive..."
+          for ($i = 1; $i -le 360; $i++) {
+            Start-Sleep -Seconds 60
+            if ($i % 10 -eq 0) {
+              Write-Host "[$i/360] Server running..."
+            }
+          }
