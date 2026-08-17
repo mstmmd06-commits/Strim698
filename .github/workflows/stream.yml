@@ -1,98 +1,175 @@
-name: Windows Cloud Desktop (Cloudflare)
+name: Hermes Desktop Direct
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-      - name: 1. Enable RDP + Create User
+      - name: 1. Install Desktop Environment + Tools
         run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
-          
-          $Password = ConvertTo-SecureString "CloudPass123!" -AsPlainText -Force
-          New-LocalUser -Name "CloudUser" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Administrators" -Member "CloudUser" -ErrorAction SilentlyContinue
-          
-          powercfg /change /monitor-timeout-ac 0
-          powercfg /change /standby-timeout-ac 0
-        shell: pwsh
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            xvfb \
+            openbox \
+            x11vnc \
+            novnc \
+            websockify \
+            curl \
+            git \
+            nodejs \
+            npm \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libdrm2 \
+            libxkbcommon0 \
+            libgbm1 \
+            libasound2 \
+            libxshmfence1 \
+            xdg-utils
+        shell: bash
 
-      - name: 2. Install TightVNC Server
+      - name: 2. Install Hermes Agent + Desktop
         run: |
-          Write-Host "Downloading TightVNC..."
-          Invoke-WebRequest -Uri "https://www.tightvnc.com/download/2.8.85/tightvnc-2.8.85-gpl-setup-64bit.msi" -OutFile "C:\tightvnc.msi"
+          echo "🔥 Installing Hermes Agent..."
+          curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
           
-          Write-Host "Installing TightVNC silently..."
-          Start-Process msiexec -ArgumentList "/i C:\tightvnc.msi /quiet /norestart ADDLOCAL=""Server"" SERVER_REGISTER_AS_SERVICE=1 SERVER_ADD_FIREWALL_RULE=1 SET_USEVNCAUTHENTICATION=1 VALUE_OF_USEVNCAUTHENTICATION=1 SET_PASSWORD=1 VALUE_OF_PASSWORD=""CloudVNC123"" SET_USECONTROLAUTHENTICATION=1 VALUE_OF_USECONTROLAUTHENTICATION=1 SET_CONTROLPASSWORD=1 VALUE_OF_CONTROLPASSWORD=""CloudVNC123""" -Wait
-          
-          Write-Host "Starting TightVNC Service..."
-          Start-Service tvnserver
-          Start-Sleep -Seconds 5
-          Write-Host "TightVNC installed and running!"
-        shell: pwsh
+          echo "✅ Hermes installed!"
+          export PATH="$HOME/.local/bin:$PATH"
+          hermes --version
+        shell: bash
 
-      - name: 3. Install noVNC + websockify (No Docker!)
+      - name: 3. Start Virtual Display (Xvfb)
         run: |
-          Write-Host "Installing websockify..."
-          pip install websockify
+          # Start Xvfb with 1920x1080 resolution
+          nohup Xvfb :99 -screen 0 1920x1080x24 > /tmp/xvfb.log 2>&1 &
+          sleep 3
+          export DISPLAY=:99
           
-          Write-Host "Cloning noVNC..."
-          git clone --depth 1 https://github.com/novnc/noVNC.git C:\noVNC
+          # Configure Openbox to auto-start Hermes Desktop fullscreen
+          mkdir -p ~/.config/openbox
+          cat > ~/.config/openbox/autostart << 'EOF'
+# Remove window decorations, make Hermes Desktop fullscreen
+# Auto-start Hermes Desktop
+(sleep 2 && hermes desktop --fullscreen 2>/dev/null || hermes desktop) &
+EOF
           
-          Write-Host "Starting websockify (noVNC)..."
-          Start-Process -FilePath "python" -ArgumentList "-m websockify --web C:\noVNC 6080 localhost:5900" -NoNewWindow
+          cat > ~/.config/openbox/rc.xml << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config>
+  <applications>
+    <application name="*">
+      <decor>no</decor>
+      <fullscreen>yes</fullscreen>
+      <maximized>yes</maximized>
+    </application>
+  </applications>
+</openbox_config>
+EOF
           
-          Start-Sleep -Seconds 10
-          Write-Host "noVNC started on port 6080!"
-        shell: pwsh
+          echo "✅ Openbox configured for fullscreen Hermes Desktop"
+        shell: bash
 
-      - name: 4. Install & Start Cloudflare Tunnel
+      - name: 4. Start Window Manager + Hermes Desktop
+        env:
+          DISPLAY: :99
         run: |
-          Write-Host "Downloading cloudflared..."
-          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "C:\cloudflared.exe"
+          # Start openbox (minimal window manager)
+          nohup openbox-session > /tmp/openbox.log 2>&1 &
+          sleep 5
           
-          Write-Host "Starting Cloudflare Tunnel..."
-          Start-Process -FilePath "C:\cloudflared.exe" -ArgumentList "tunnel --url http://localhost:6080" -RedirectStandardOutput "C:\cf_out.log" -RedirectStandardError "C:\cf_err.log" -NoNewWindow
-          
-          Start-Sleep -Seconds 20
-          
-          $url = ""
-          if (Test-Path "C:\cf_err.log") {
-            $url = Get-Content "C:\cf_err.log" | Select-String -Pattern "https://[a-zA-Z0-9-]+\.trycloudflare\.com" | ForEach-Object { $_.Matches[0].Value } | Select-Object -First 1
-          }
-          if (-not $url -and (Test-Path "C:\cf_out.log")) {
-            $url = Get-Content "C:\cf_out.log" | Select-String -Pattern "https://[a-zA-Z0-9-]+\.trycloudflare\.com" | ForEach-Object { $_.Matches[0].Value } | Select-Object -First 1
-          }
-          
-          Write-Host ""
-          Write-Host "==================================================" -ForegroundColor Green
-          Write-Host "  >>> WINDOWS DESKTOP IS READY! <<<" -ForegroundColor Cyan
-          Write-Host ""
-          Write-Host "  URL: $url/vnc.html" -ForegroundColor Yellow
-          Write-Host "  VNC Password: CloudVNC123" -ForegroundColor Yellow
-          Write-Host ""
-          Write-Host "  Open URL in phone browser!" -ForegroundColor Magenta
-          Write-Host "  Mouse: Tap on screen" -ForegroundColor Magenta
-          Write-Host "  Keyboard: Tap keyboard icon" -ForegroundColor Magenta
-          Write-Host "  F1-F12: Available in virtual keyboard" -ForegroundColor Magenta
-          Write-Host "==================================================" -ForegroundColor Green
-        shell: pwsh
+          echo "✅ Openbox started"
+          echo "✅ Hermes Desktop should be launching..."
+        shell: bash
 
-      - name: 5. Keep Alive (6 Hours)
+      - name: 5. Start VNC + noVNC
+        env:
+          DISPLAY: :99
         run: |
-          for ($i = 1; $i -le 360; $i++) {
-            Start-Sleep -Seconds 60
-            Write-Host "[$i/360] Desktop running..."
+          echo "Starting VNC server..."
+          nohup x11vnc -display :99 -forever -shared -nopw > /tmp/vnc.log 2>&1 &
+          sleep 3
+          
+          echo "Starting noVNC web interface..."
+          nohup websockify --web /usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
+          sleep 5
+          
+          # Verify ports are listening
+          if ss -tlnp | grep -q ":6080"; then
+            echo "✅ noVNC is ready on port 6080"
+          else
+            echo "❌ noVNC failed to start"
+            cat /tmp/novnc.log
+            exit 1
+          fi
+        shell: bash
+
+      - name: 6. Start Cloudflare Tunnel
+        run: |
+          echo "Downloading cloudflared..."
+          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          
+          echo "Starting Cloudflare Tunnel..."
+          nohup ./cloudflared tunnel --no-autoupdate --url http://localhost:6080 > /tmp/cf.log 2>&1 &
+          
+          # Wait for URL
+          echo "⏳ Waiting for tunnel URL..."
+          for i in $(seq 1 30); do
+            sleep 2
+            url=$(grep -oE "https://[a-zA-Z0-9-]+\.trycloudflare\.com" /tmp/cf.log | head -1)
+            if [ -n "$url" ]; then
+              break
+            fi
+            echo "Attempt $i/30..."
+          done
+          
+          if [ -z "$url" ]; then
+            echo "❌ Failed to get tunnel URL"
+            cat /tmp/cf.log
+            exit 1
+          fi
+          
+          sleep 5
+          
+          echo ""
+          echo "=================================================="
+          echo "  >>> HERMES DESKTOP IS READY! <<<"
+          echo ""
+          echo "  🔗 URL: $url/vnc.html?autoconnect=true"
+          echo ""
+          echo "  📱 Open this URL in your phone browser!"
+          echo "  🖥️ You will see ONLY Hermes Desktop (fullscreen)"
+          echo "  🚫 No desktop, no other apps - just Hermes!"
+          echo "=================================================="
+          echo ""
+          
+          echo "$url" > /tmp/tunnel_url.txt
+        shell: bash
+
+      - name: 7. Keep Alive (6 Hours)
+        run: |
+          url=$(cat /tmp/tunnel_url.txt)
+          echo ""
+          echo "=================================================="
+          echo "  🚀 Hermes Desktop is running!"
+          echo "  🔗 URL: $url/vnc.html?autoconnect=true"
+          echo "=================================================="
+          echo ""
+          
+          for i in $(seq 1 360); do
+            sleep 60
+            echo "[$i/360] Hermes Desktop running..."
             
-            if ($i % 15 -eq 0) {
-              Write-Host "--- Health Check ---"
-              Get-Service tvnserver | Select-Object Name, Status
-            }
-          }
-        shell: pwsh
+            if [ $((i % 30)) -eq 0 ]; then
+              echo "--- Health Check ---"
+              echo "Xvfb: $(pgrep -c Xvfb) process(es)"
+              echo "Openbox: $(pgrep -c openbox) process(es)"
+              echo "VNC: $(ss -tlnp | grep -c :5900) listener(s)"
+              echo "noVNC: $(ss -tlnp | grep -c :6080) listener(s)"
+            fi
+          done
+        shell: bash
