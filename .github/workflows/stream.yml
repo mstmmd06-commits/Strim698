@@ -11,17 +11,14 @@ jobs:
     steps:
       - name: 1. Enable RDP + Create User
         run: |
-          # Enable RDP
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
           
-          # Create user
           $Password = ConvertTo-SecureString "CloudPass123!" -AsPlainText -Force
           New-LocalUser -Name "CloudUser" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member "CloudUser" -ErrorAction SilentlyContinue
           
-          # Keep screen awake
           powercfg /change /monitor-timeout-ac 0
           powercfg /change /standby-timeout-ac 0
         shell: pwsh
@@ -32,7 +29,7 @@ jobs:
           Invoke-WebRequest -Uri "https://www.tightvnc.com/download/2.8.85/tightvnc-2.8.85-gpl-setup-64bit.msi" -OutFile "C:\tightvnc.msi"
           
           Write-Host "Installing TightVNC silently..."
-          Start-Process msiexec -ArgumentList "/i C:\tightvnc.msi /quiet /norestart ADDLOCAL=""Server"" SERVER_REGISTER_AS_SERVICE=1 SERVER_ADD_FIREWALL_RULE=1 SET_USEVNCAUTHENTICATION=1 VALUE_OF_USEVNCAUTHENTICATION=1 SET_PASSWORD=1 VALUE_OF_PASSWORD=""CloudVNC123"" SET_USECONTROLAUTHENTICATION=1 VALUE_OF_USECONTROLAUTHENTICATION=1 SET_CONTROLPASSWORD=1 VALUE_OF_CONTROLPASSWORD=""CloudVNC123"" SET_ACCEPTHTTPCONNECTIONS=1 VALUE_OF_ACCEPTHTTPCONNECTIONS=1 SET_HTTPPORT=1 VALUE_OF_HTTPPORT=5800" -Wait
+          Start-Process msiexec -ArgumentList "/i C:\tightvnc.msi /quiet /norestart ADDLOCAL=""Server"" SERVER_REGISTER_AS_SERVICE=1 SERVER_ADD_FIREWALL_RULE=1 SET_USEVNCAUTHENTICATION=1 VALUE_OF_USEVNCAUTHENTICATION=1 SET_PASSWORD=1 VALUE_OF_PASSWORD=""CloudVNC123"" SET_USECONTROLAUTHENTICATION=1 VALUE_OF_USECONTROLAUTHENTICATION=1 SET_CONTROLPASSWORD=1 VALUE_OF_CONTROLPASSWORD=""CloudVNC123""" -Wait
           
           Write-Host "Starting TightVNC Service..."
           Start-Service tvnserver
@@ -40,16 +37,16 @@ jobs:
           Write-Host "TightVNC installed and running!"
         shell: pwsh
 
-      - name: 3. Start noVNC (Web-based VNC client)
+      - name: 3. Install noVNC + websockify (No Docker!)
         run: |
-          Write-Host "Starting noVNC via Docker..."
+          Write-Host "Installing websockify..."
+          pip install websockify
           
-          # Pull and run noVNC container
-          docker run -d --name novnc `
-            -p 6080:6080 `
-            -e VNC_SERVER="host.docker.internal:5900" `
-            -e VNC_PASSWORD="CloudVNC123" `
-            thegeeklab/novnc
+          Write-Host "Cloning noVNC..."
+          git clone --depth 1 https://github.com/novnc/noVNC.git C:\noVNC
+          
+          Write-Host "Starting websockify (noVNC)..."
+          Start-Process -FilePath "python" -ArgumentList "-m websockify --web C:\noVNC 6080 localhost:5900" -NoNewWindow
           
           Start-Sleep -Seconds 10
           Write-Host "noVNC started on port 6080!"
@@ -65,7 +62,6 @@ jobs:
           
           Start-Sleep -Seconds 20
           
-          # Extract URL from logs
           $url = ""
           if (Test-Path "C:\cf_err.log") {
             $url = Get-Content "C:\cf_err.log" | Select-String -Pattern "https://[a-zA-Z0-9-]+\.trycloudflare\.com" | ForEach-Object { $_.Matches[0].Value } | Select-Object -First 1
@@ -81,9 +77,9 @@ jobs:
           Write-Host "  URL: $url/vnc.html" -ForegroundColor Yellow
           Write-Host "  VNC Password: CloudVNC123" -ForegroundColor Yellow
           Write-Host ""
-          Write-Host "  Open the URL in your phone browser!" -ForegroundColor Magenta
-          Write-Host "  Mouse: Use touch/tap on screen" -ForegroundColor Magenta
-          Write-Host "  Keyboard: Tap keyboard icon in noVNC bar" -ForegroundColor Magenta
+          Write-Host "  Open URL in phone browser!" -ForegroundColor Magenta
+          Write-Host "  Mouse: Tap on screen" -ForegroundColor Magenta
+          Write-Host "  Keyboard: Tap keyboard icon" -ForegroundColor Magenta
           Write-Host "  F1-F12: Available in virtual keyboard" -ForegroundColor Magenta
           Write-Host "==================================================" -ForegroundColor Green
         shell: pwsh
@@ -97,7 +93,6 @@ jobs:
             if ($i % 15 -eq 0) {
               Write-Host "--- Health Check ---"
               Get-Service tvnserver | Select-Object Name, Status
-              docker ps
             }
           }
         shell: pwsh
