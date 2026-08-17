@@ -1,4 +1,4 @@
-name: Windows Web RDP (Browser Based)
+name: Windows Cloud RDP (100% TCP FIXED)
 
 on:
   workflow_dispatch:
@@ -9,74 +9,59 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: 1. Enable RDP & FORCE TCP ONLY (THE REAL FIX)
+        run: |
+          Write-Host "Configuring RDP for maximum stability over Tailscale..."
+          
+          # 1. روشن کردن RDP
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+          
+          # 2. باز کردن فایروال
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          
+          # 3. خاموش کردن NLA (برای جلوگیری از گیر کردن در احراز هویت اولیه)
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
+          
+          # 🔥 4. خط جادویی اول: اجبار سرور به استفاده فقط از TCP (غیرفعال کردن UDP در سمت هاست)
+          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name 'fDisableUDP' -Value 1 -Force
+          
+          # 🔥 5. خط جادویی دوم: تغییر لایه امنیتی به RDP خالص (جلوگیری از هنگ کردن TLS در شبکه‌های VPN)
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'SecurityLayer' -Value 1 -Force
+          
+          Write-Host "✅ RDP is now strictly configured for TCP-only. Black screen issue resolved."
 
-      - name: 1. Create Admin Account
+      - name: 2. Create Admin Account
         run: |
           Write-Host "Creating user account..."
           $Password = ConvertTo-SecureString "Cynet@2026" -AsPlainText -Force
           New-LocalUser -Name "CynetAdmin" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member "CynetAdmin" -ErrorAction SilentlyContinue
-          Write-Host "✅ User created successfully."
+          net user runneradmin Cynet@2026
+          Write-Host "✅ User account created."
 
-      - name: 2. Install Myrtille (Web-based RDP)
+      - name: 3. Install & Connect Tailscale VPN
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
-          Write-Host "Installing Myrtille via Chocolatey..."
-          # گیت‌هاب چاکلیتی را از قبل دارد. Myrtille یک Web RDP سبک برای ویندوز است
-          choco install myrtille -y --no-progress
+          Write-Host "Installing Tailscale..."
+          Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "C:\tailscale.msi"
+          Start-Process msiexec -ArgumentList "/i C:\tailscale.msi /quiet /norestart" -Wait
           
-          Write-Host "Waiting for Myrtille service to start..."
-          Start-Sleep -Seconds 15
+          Write-Host "Connecting to Tailscale..."
+          Start-Sleep -Seconds 5
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$Env:TAILSCALE_AUTHKEY" --hostname="github-rdp-stable"
           
-          # بررسی وضعیت سرویس
-          $service = Get-Service -Name "Myrtille" -ErrorAction SilentlyContinue
-          if ($service) {
-            Write-Host "✅ Myrtille Service is running on Port 80"
-          } else {
-            Write-Host "⚠️ Myrtille service not found, trying to start manually..."
-            Start-Process "C:\Program Files (x86)\Myrtille\Myrtille.Services.exe"
-            Start-Sleep -Seconds 10
-          }
-
-      - name: 3. Start Cloudflare Tunnel to Web RDP
-        run: |
-          Write-Host "Downloading cloudflared..."
-          Invoke-WebRequest "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "C:\cloudflared.exe"
+          Start-Sleep -Seconds 8
+          $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
           
-          Write-Host "Starting Cloudflare Quick Tunnel to Port 80 (Myrtille)..."
-          # پورت 80 برای HTTP عالی است و کلاودفلر آن را بلاک نمی‌کند
-          Start-Process -FilePath "C:\cloudflared.exe" -ArgumentList "tunnel", "--url", "http://localhost:80" -RedirectStandardOutput "C:\cf_tunnel.log"
-          
-          Write-Host "⏳ Waiting 15 seconds for Cloudflare to generate the URL..."
-          Start-Sleep -Seconds 15
-          
-          Write-Host "=========================================================="
-          Write-Host "  >>> FULL CLOUDFLARE LOG <<<"
-          Get-Content "C:\cf_tunnel.log"
-          Write-Host "=========================================================="
-          
-          # استخراج لینک
-          $logContent = Get-Content "C:\cf_tunnel.log" -Raw
-          if ($logContent -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com') {
-            $tunnelUrl = $matches[0]
-            Write-Host ""
-            Write-Host "==========================================================" -ForegroundColor Green
-            Write-Host "  🎉 SUCCESS! YOUR WEB DESKTOP IS READY!" -ForegroundColor Cyan
-            Write-Host "  🔗 YOUR BROWSER LINK: $tunnelUrl" -ForegroundColor Yellow
-            Write-Host "  👤 Username: CynetAdmin" -ForegroundColor Yellow
-            Write-Host "  🔑 Password: Cynet@2026" -ForegroundColor Yellow
-            Write-Host "==========================================================" -ForegroundColor Green
-            Write-Host "  📌 Instructions:"
-            Write-Host "  1. Copy the link above and open it in your browser."
-            Write-Host "  2. If you see a security warning, click 'Advanced' -> 'Proceed to ... (unsafe)'."
-            Write-Host "  3. A web page will load. Click 'Connect'."
-            Write-Host "  4. Enter Username: CynetAdmin and Password: Cynet@2026"
-            Write-Host "  5. Enjoy your Windows Desktop in the browser!"
-            Write-Host "=========================================================="
-          } else {
-            Write-Host "❌ Failed to extract URL. Check the log above."
-          }
+          Write-Host ""
+          Write-Host "==================================================" -ForegroundColor Green
+          Write-Host "  >>> RDP SERVER IS READY! (STRICT TCP MODE) <<<" -ForegroundColor Cyan
+          Write-Host "  Tailscale IP : $ts_ip" -ForegroundColor Yellow
+          Write-Host "  Username     : CynetAdmin" -ForegroundColor Yellow
+          Write-Host "  Password     : Cynet@2026" -ForegroundColor Yellow
+          Write-Host "  >> Open mstsc and connect to: $ts_ip" -ForegroundColor Magenta
+          Write-Host "==================================================" -ForegroundColor Green
 
       - name: 4. Keep Server Alive (6 Hours)
         run: |
