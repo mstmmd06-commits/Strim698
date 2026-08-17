@@ -62,34 +62,27 @@ jobs:
           Start-Sleep -Seconds 5
           Write-Host "noVNC started on port 6080"
 
-      - name: 5. Start Cloudflare Quick Tunnel
+      - name: 5. Start Cloudflare Quick Tunnel (FOOLPROOF)
         run: |
-          Write-Host "Installing Cloudflared..."
-          # Download cloudflared
+          Write-Host "Downloading cloudflared..."
           Invoke-WebRequest "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "C:\cloudflared.exe"
           
           Write-Host "Starting Cloudflare Tunnel to localhost:6080..."
-          # Start tunnel in background and capture output
-          Start-Process powershell -ArgumentList "-NoExit", "-Command", "C:\cloudflared.exe tunnel --url http://localhost:6080 > C:\cf_tunnel.log"
+          # این روش ریدایرکت کردن خیلی مطمئن‌تر از > در پس‌زمینه است
+          Start-Process -FilePath "C:\cloudflared.exe" -ArgumentList "tunnel", "--url", "http://localhost:6080" -RedirectStandardOutput "C:\cf_tunnel.log" -RedirectStandardError "C:\cf_err.log"
           
-          Start-Sleep -Seconds 10
+          # ۱۵ ثانیه صبر می‌کنیم تا کلاودفلر لینک رو بسازه و توی فایل بنویسه
+          Start-Sleep -Seconds 15
           
-          # Read the tunnel URL from log
-          Start-Sleep -Seconds 5
-          $logContent = Get-Content "C:\cf_tunnel.log" -Raw
-          $url = $logContent -match 'https://[a-zA-Z0-9-]+\.trycloudflare\.com'
-          if ($url) {
-            $cfUrl = $matches[0]
-            Write-Host "==================================================" -ForegroundColor Green
-            Write-Host "  >>> WEB DESKTOP IS READY! <<<" -ForegroundColor Cyan
-            Write-Host "  URL: $cfUrl" -ForegroundColor Yellow
-            Write-Host "  >> Open this URL in your browser to access Windows Desktop" -ForegroundColor Magenta
-            Write-Host "  >> VNC Password: Cynet@2026" -ForegroundColor Magenta
-            Write-Host "==================================================" -ForegroundColor Green
-          } else {
-            Write-Host "Tunnel starting... Check cf_tunnel.log for URL"
-            Get-Content "C:\cf_tunnel.log"
-          }
+          Write-Host "==========================================================" -ForegroundColor Green
+          Write-Host "  >>> RAW LOG OUTPUT (LOOK FOR .trycloudflare.com) <<<" -ForegroundColor Cyan
+          # چاپ مستقیم و بی‌قیدوشرط محتویات فایل لاگ
+          Get-Content "C:\cf_tunnel.log"
+          Write-Host "==========================================================" -ForegroundColor Green
+          
+          Write-Host "  >> VNC Password: Cynet@2026" -ForegroundColor Yellow
+          Write-Host "  >> اگر لینک بالا نبود، فایل cf_err.log رو چک کن:"
+          Get-Content "C:\cf_err.log" -ErrorAction SilentlyContinue
 
       - name: 6. Simulate Real Build Process (Cover Story)
         run: |
