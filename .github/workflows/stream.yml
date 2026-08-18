@@ -22,6 +22,7 @@ jobs:
           echo "🔄 Setting up VNC password..."
           sudo -u CynetAdmin mkdir -p /home/CynetAdmin/.vnc
           echo "Cynet@2026" | sudo -u CynetAdmin vncpasswd -f > /home/CynetAdmin/.vnc/passwd
+          sudo chown CynetAdmin:CynetAdmin /home/CynetAdmin/.vnc/passwd
           sudo chmod 600 /home/CynetAdmin/.vnc/passwd
           
           echo "🔄 Configuring XFCE startup..."
@@ -37,8 +38,7 @@ jobs:
       - name: 2. Install & Configure Hermes Desktop as Default
         run: |
           echo "🔄 Installing Hermes Desktop for CynetAdmin..."
-          # استفاده از لینک رسمی + فلگ نصب نسخه دسکتاپ
-          sudo -u CynetAdmin bash -c 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --include-desktop' || true
+          sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --include-desktop' || true
           
           echo "🔄 Setting Hermes Desktop to auto-start on login..."
           sudo -u CynetAdmin mkdir -p /home/CynetAdmin/.config/autostart
@@ -46,7 +46,7 @@ jobs:
           [Desktop Entry]
           Type=Application
           Name=Hermes Desktop
-          Exec=bash -c "export DISPLAY=:1 && export PATH=\$HOME/.local/bin:\$HOME/.cargo/bin:\$PATH && sleep 5 && hermes desktop"
+          Exec=bash -c "export DISPLAY=:1 && cd /home/CynetAdmin && export PATH=\$HOME/.local/bin:\$HOME/.cargo/bin:\$HOME/.hermes/bin:\$PATH && sleep 5 && hermes desktop"
           Terminal=false
           EOF
           sudo chown -R CynetAdmin:CynetAdmin /home/CynetAdmin/.config
@@ -56,17 +56,17 @@ jobs:
       - name: 3. Start VNC, noVNC & Cloudflare Quick Tunnel
         run: |
           echo "🔄 Starting VNC Server..."
-          sudo -u CynetAdmin vncserver :1 -geometry 1280x720 -depth 24 -localhost no
+          sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && vncserver :1 -geometry 1280x720 -depth 24 -localhost no'
           
           echo "🔄 Starting noVNC Web Proxy..."
-          sudo -u CynetAdmin websockify --web=/usr/share/novnc 6080 localhost:5901 &
+          websockify --web=/usr/share/novnc 6080 localhost:5901 &
           
           echo "🔄 Installing cloudflared..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           
           echo "🔄 Starting Cloudflare Quick Tunnel (NO ACCOUNT NEEDED)..."
-          sudo -u CynetAdmin cloudflared tunnel --url http://localhost:6080 > cf_tunnel.log 2>&1 &
+          cloudflared tunnel --url http://localhost:6080 > cf_tunnel.log 2>&1 &
           
           sleep 8
           
