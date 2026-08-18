@@ -13,7 +13,7 @@ jobs:
         run: |
           echo "🔄 Installing XFCE4, TigerVNC, and noVNC..."
           sudo apt-get update
-          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify wget curl dbus-x11
+          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify wget curl dbus-x11 net-tools
           
           echo "🔄 Creating user account..."
           sudo useradd -m -s /bin/bash CynetAdmin
@@ -30,7 +30,7 @@ jobs:
           sudo -u CynetAdmin touch /home/CynetAdmin/.Xresources
           sudo chmod 600 /home/CynetAdmin/.Xauthority
           
-          echo "🔄 Configuring XFCE startup (FIXED)..."
+          echo "🔄 Configuring XFCE startup (ROBUST)..."
           cat << 'EOF' | sudo -u CynetAdmin tee /home/CynetAdmin/.vnc/xstartup > /dev/null
           #!/bin/bash
           unset SESSION_MANAGER
@@ -38,9 +38,11 @@ jobs:
           export XDG_CURRENT_DESKTOP=XFCE
           export XDG_CONFIG_DIRS=/etc/xdg/xfce4
           
-          xrdb $HOME/.Xresources
+          # اطمینان از وجود فایل‌ها
+          touch $HOME/.Xresources
+          xrdb -merge $HOME/.Xresources
           
-          # استفاده از exec برای زنده نگه داشتن Session (حذف علامت &)
+          # اجرای XFCE به صورت پیش‌زمینه برای زنده نگه داشتن Session
           exec startxfce4
           EOF
           sudo chmod +x /home/CynetAdmin/.vnc/xstartup
@@ -50,7 +52,6 @@ jobs:
       - name: 2. Install & Configure Hermes Desktop as Default
         run: |
           echo "🔄 Installing Hermes Desktop for CynetAdmin..."
-          # اجرای نصب در دایرکتوری خانگی کاربر برای جلوگیری از خطای Permission
           sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --include-desktop' || true
           
           echo "🔄 Setting Hermes Desktop to auto-start on login..."
@@ -69,29 +70,45 @@ jobs:
       - name: 3. Start VNC, noVNC & Cloudflare Quick Tunnel
         run: |
           echo "🔄 Starting VNC Server..."
-          # اجرای VNC از داخل دایرکتوری کاربر
-          sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && vncserver :1 -geometry 1280x720 -depth 24 -localhost no'
+          # استفاده از -alwaysshared برای پایداری بیشتر
+          sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && vncserver :1 -geometry 1280x720 -depth 24 -localhost no -alwaysshared'
           
-          echo "🔄 Starting noVNC Web Proxy..."
-          websockify --web=/usr/share/novnc 6080 localhost:5901 &
+          echo "🔄 Starting noVNC Web Proxy (Binding to 0.0.0.0)..."
+          # اتصال به 0.0.0.0 برای اطمینان از دسترسی کلودفلر
+          websockify -D --web=/usr/share/novnc 0.0.0.0:6080 localhost:5901
           
           echo "🔄 Installing cloudflared..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           
-          echo "🔄 Starting Cloudflare Quick Tunnel (NO ACCOUNT NEEDED)..."
+          echo "🔄 Starting Cloudflare Quick Tunnel..."
           cloudflared tunnel --url http://localhost:6080 > cf_tunnel.log 2>&1 &
           
           sleep 8
+          
+          # --- HEALTH CHECK (بررسی سلامت سرور) ---
+          echo "🔍 Running Health Check..."
+          if ! sudo -u CynetAdmin netstat -tuln | grep -q ":5901 "; then
+            echo "❌ ERROR: VNC Server (Port 5901) is NOT running!"
+            echo "📄 VNC Log:"
+            cat /home/CynetAdmin/.vnc/*.log || true
+            exit 1
+          fi
+          
+          if ! netstat -tuln | grep -q ":6080 "; then
+            echo "❌ ERROR: Websockify (Port 6080) is NOT running!"
+            exit 1
+          fi
+          echo "✅ Health Check Passed: Both VNC and Websockify are listening."
           
           CF_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cf_tunnel.log | head -n 1)
           
           echo ""
           echo "==========================================================" 
-          echo "  >>> DESKTOP IS READY! (NO TAILSCALE, NO ACCOUNT) <<<" 
-          echo "  🔗 LINK TO OPEN IN BROWSER: $CF_URL" 
-          echo "  🔑 VNC Password: Cynet@2026" 
-          echo "  (Hermes Desktop will auto-start inside the session)"
+          echo "  >>> DESKTOP IS READY! <<<" 
+          echo "  🔗 LINK: $CF_URL" 
+          echo "  🔑 Password: Cynet@2026" 
+          echo "  💡 Tip: If it fails, click 'Connect' again. Sometimes WebSocket needs 1-2 tries."
           echo "==========================================================" 
 
       - name: 4. Keep Server Alive (6 Hours)
