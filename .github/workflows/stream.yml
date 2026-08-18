@@ -13,7 +13,7 @@ jobs:
         run: |
           echo "🔄 Installing XFCE4, TigerVNC, and noVNC..."
           sudo apt-get update
-          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify wget curl dbus-x11 net-tools
+          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify wget curl dbus-x11 dbus net-tools
           
           echo "🔄 Creating user account..."
           sudo useradd -m -s /bin/bash CynetAdmin
@@ -30,20 +30,23 @@ jobs:
           sudo -u CynetAdmin touch /home/CynetAdmin/.Xresources
           sudo chmod 600 /home/CynetAdmin/.Xauthority
           
-          echo "🔄 Configuring XFCE startup (ROBUST)..."
+          # ساخت دایرکتوری Runtime برای D-Bus (حل مشکل xfconfd)
+          UID_C=$(id -u CynetAdmin)
+          sudo mkdir -p /run/user/$UID_C
+          sudo chown CynetAdmin:CynetAdmin /run/user/$UID_C
+          sudo chmod 700 /run/user/$UID_C
+          
+          echo "🔄 Configuring XFCE startup (D-BUS FIXED)..."
           cat << 'EOF' | sudo -u CynetAdmin tee /home/CynetAdmin/.vnc/xstartup > /dev/null
-          #!/bin/bash
+          #!/bin/sh
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
-          export XDG_CURRENT_DESKTOP=XFCE
-          export XDG_CONFIG_DIRS=/etc/xdg/xfce4
-          
-          # اطمینان از وجود فایل‌ها
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          export XDG_CONFIG_DIRS=/etc/xdg
           touch $HOME/.Xresources
-          xrdb -merge $HOME/.Xresources
-          
-          # اجرای XFCE به صورت پیش‌زمینه برای زنده نگه داشتن Session
-          exec startxfce4
+          xrdb -merge $HOME/.Xresources 2>/dev/null
+          # اجرای XFCE از طریق dbus-launch (راه‌حل قطعی خطای failsafe)
+          exec dbus-launch --exit-with-session startxfce4
           EOF
           sudo chmod +x /home/CynetAdmin/.vnc/xstartup
           
@@ -70,11 +73,9 @@ jobs:
       - name: 3. Start VNC, noVNC & Cloudflare Quick Tunnel
         run: |
           echo "🔄 Starting VNC Server..."
-          # استفاده از -alwaysshared برای پایداری بیشتر
           sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && vncserver :1 -geometry 1280x720 -depth 24 -localhost no -alwaysshared'
           
-          echo "🔄 Starting noVNC Web Proxy (Binding to 0.0.0.0)..."
-          # اتصال به 0.0.0.0 برای اطمینان از دسترسی کلودفلر
+          echo "🔄 Starting noVNC Web Proxy..."
           websockify -D --web=/usr/share/novnc 0.0.0.0:6080 localhost:5901
           
           echo "🔄 Installing cloudflared..."
@@ -86,20 +87,17 @@ jobs:
           
           sleep 8
           
-          # --- HEALTH CHECK (بررسی سلامت سرور) ---
           echo "🔍 Running Health Check..."
-          if ! sudo -u CynetAdmin netstat -tuln | grep -q ":5901 "; then
+          if ! netstat -tuln | grep -q ":5901 "; then
             echo "❌ ERROR: VNC Server (Port 5901) is NOT running!"
-            echo "📄 VNC Log:"
             cat /home/CynetAdmin/.vnc/*.log || true
             exit 1
           fi
-          
           if ! netstat -tuln | grep -q ":6080 "; then
             echo "❌ ERROR: Websockify (Port 6080) is NOT running!"
             exit 1
           fi
-          echo "✅ Health Check Passed: Both VNC and Websockify are listening."
+          echo "✅ Health Check Passed."
           
           CF_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cf_tunnel.log | head -n 1)
           
@@ -108,7 +106,6 @@ jobs:
           echo "  >>> DESKTOP IS READY! <<<" 
           echo "  🔗 LINK: $CF_URL" 
           echo "  🔑 Password: Cynet@2026" 
-          echo "  💡 Tip: If it fails, click 'Connect' again. Sometimes WebSocket needs 1-2 tries."
           echo "==========================================================" 
 
       - name: 4. Keep Server Alive (6 Hours)
