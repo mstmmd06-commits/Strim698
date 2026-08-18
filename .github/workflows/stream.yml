@@ -1,63 +1,92 @@
-name: Windows Cloud RDP (FIXED - No Black Screen)
+name: Linux Cloud Desktop (noVNC + Cloudflare Quick Tunnel + Hermes Desktop)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-      - name: 1. Enable Remote Desktop & DISABLE UDP (THE FIX)
+      - name: 1. Setup XFCE, VNC & noVNC
         run: |
-          Write-Host "Enabling RDP and fixing Tailscale black screen issue..."
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
+          echo "🔄 Installing XFCE4, TigerVNC, and noVNC..."
+          sudo apt-get update
+          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify wget curl dbus-x11
           
-          # 🔥 این خط جادویی است: غیرفعال کردن UDP برای RDP تا صفحه سیاه و تایم‌اوت از بین برود
-          Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name 'fClientDisableUDP' -Value 1 -Force
-          Write-Host "✅ RDP configured for stable TCP-only connection."
+          echo "🔄 Creating user account..."
+          sudo useradd -m -s /bin/bash CynetAdmin
+          echo "CynetAdmin:Cynet@2026" | sudo chpasswd
+          
+          echo "🔄 Setting up VNC password..."
+          sudo -u CynetAdmin mkdir -p /home/CynetAdmin/.vnc
+          echo "Cynet@2026" | sudo -u CynetAdmin vncpasswd -f > /home/CynetAdmin/.vnc/passwd
+          sudo chmod 600 /home/CynetAdmin/.vnc/passwd
+          
+          echo "🔄 Configuring XFCE startup..."
+          cat << 'EOF' | sudo -u CynetAdmin tee /home/CynetAdmin/.vnc/xstartup > /dev/null
+          #!/bin/bash
+          xrdb $HOME/.Xresources
+          startxfce4 &
+          EOF
+          sudo chmod +x /home/CynetAdmin/.vnc/xstartup
+          
+          echo "✅ Desktop environment installed and configured."
 
-      - name: 2. Create Admin Account
+      - name: 2. Install & Configure Hermes Desktop as Default
         run: |
-          $Password = ConvertTo-SecureString "Cynet@2026" -AsPlainText -Force
-          New-LocalUser -Name "CynetAdmin" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Administrators" -Member "CynetAdmin" -ErrorAction SilentlyContinue
-          net user runneradmin Cynet@2026
-          Write-Host "✅ User account created."
+          echo "🔄 Installing Hermes Desktop for CynetAdmin..."
+          # استفاده از لینک رسمی + فلگ نصب نسخه دسکتاپ
+          sudo -u CynetAdmin bash -c 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --include-desktop' || true
+          
+          echo "🔄 Setting Hermes Desktop to auto-start on login..."
+          sudo -u CynetAdmin mkdir -p /home/CynetAdmin/.config/autostart
+          cat << 'EOF' | sudo -u CynetAdmin tee /home/CynetAdmin/.config/autostart/hermes-desktop.desktop > /dev/null
+          [Desktop Entry]
+          Type=Application
+          Name=Hermes Desktop
+          Exec=bash -c "export DISPLAY=:1 && export PATH=\$HOME/.local/bin:\$HOME/.cargo/bin:\$PATH && sleep 5 && hermes desktop"
+          Terminal=false
+          EOF
+          sudo chown -R CynetAdmin:CynetAdmin /home/CynetAdmin/.config
+          
+          echo "✅ Hermes Desktop installed and set as default."
 
-      - name: 3. Install & Connect Tailscale VPN
-        env:
-          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      - name: 3. Start VNC, noVNC & Cloudflare Quick Tunnel
         run: |
-          Write-Host "Installing Tailscale..."
-          Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "C:\tailscale.msi"
-          Start-Process msiexec -ArgumentList "/i C:\tailscale.msi /quiet /norestart" -Wait
+          echo "🔄 Starting VNC Server..."
+          sudo -u CynetAdmin vncserver :1 -geometry 1280x720 -depth 24 -localhost no
           
-          Write-Host "Connecting to Tailscale..."
-          Start-Sleep -Seconds 5
-          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$Env:TAILSCALE_AUTHKEY" --hostname="github-rdp-stable"
+          echo "🔄 Starting noVNC Web Proxy..."
+          sudo -u CynetAdmin websockify --web=/usr/share/novnc 6080 localhost:5901 &
           
-          Start-Sleep -Seconds 8
-          $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          echo "🔄 Installing cloudflared..."
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
           
-          Write-Host ""
-          Write-Host "==================================================" -ForegroundColor Green
-          Write-Host "  >>> RDP SERVER IS READY! (TCP-ONLY MODE) <<<" -ForegroundColor Cyan
-          Write-Host "  Tailscale IP : $ts_ip" -ForegroundColor Yellow
-          Write-Host "  Username     : CynetAdmin" -ForegroundColor Yellow
-          Write-Host "  Password     : Cynet@2026" -ForegroundColor Yellow
-          Write-Host "  >> Open mstsc and connect to: $ts_ip" -ForegroundColor Magenta
-          Write-Host "==================================================" -ForegroundColor Green
+          echo "🔄 Starting Cloudflare Quick Tunnel (NO ACCOUNT NEEDED)..."
+          sudo -u CynetAdmin cloudflared tunnel --url http://localhost:6080 > cf_tunnel.log 2>&1 &
+          
+          sleep 8
+          
+          CF_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cf_tunnel.log | head -n 1)
+          
+          echo ""
+          echo "==========================================================" 
+          echo "  >>> DESKTOP IS READY! (NO TAILSCALE, NO ACCOUNT) <<<" 
+          echo "  🔗 LINK TO OPEN IN BROWSER: $CF_URL" 
+          echo "  🔑 VNC Password: Cynet@2026" 
+          echo "  (Hermes Desktop will auto-start inside the session)"
+          echo "==========================================================" 
 
       - name: 4. Keep Server Alive (6 Hours)
         run: |
-          Write-Host "🔄 Keeping server alive..."
-          for ($i = 1; $i -le 360; $i++) {
-            Start-Sleep -Seconds 60
-            if ($i % 10 -eq 0) {
-              Write-Host "[$i/360] Server running..."
-            }
-          }
+          echo "🔄 Keeping server alive..."
+          for i in {1..360}; do
+            sleep 60
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "[$i/360] Server running..."
+              curl -s -o /dev/null "https://google.com"
+            fi
+          done
