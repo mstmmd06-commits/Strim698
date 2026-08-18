@@ -19,17 +19,29 @@ jobs:
           sudo useradd -m -s /bin/bash CynetAdmin
           echo "CynetAdmin:Cynet@2026" | sudo chpasswd
           
-          echo "🔄 Setting up VNC password..."
+          echo "🔄 Setting up VNC password and permissions..."
           sudo -u CynetAdmin mkdir -p /home/CynetAdmin/.vnc
           echo "Cynet@2026" | sudo -u CynetAdmin vncpasswd -f > /home/CynetAdmin/.vnc/passwd
           sudo chown CynetAdmin:CynetAdmin /home/CynetAdmin/.vnc/passwd
           sudo chmod 600 /home/CynetAdmin/.vnc/passwd
           
-          echo "🔄 Configuring XFCE startup..."
+          # ساخت فایل‌های ضروری برای جلوگیری از خطاهای X11
+          sudo -u CynetAdmin touch /home/CynetAdmin/.Xauthority
+          sudo -u CynetAdmin touch /home/CynetAdmin/.Xresources
+          sudo chmod 600 /home/CynetAdmin/.Xauthority
+          
+          echo "🔄 Configuring XFCE startup (FIXED)..."
           cat << 'EOF' | sudo -u CynetAdmin tee /home/CynetAdmin/.vnc/xstartup > /dev/null
           #!/bin/bash
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+          export XDG_CURRENT_DESKTOP=XFCE
+          export XDG_CONFIG_DIRS=/etc/xdg/xfce4
+          
           xrdb $HOME/.Xresources
-          startxfce4 &
+          
+          # استفاده از exec برای زنده نگه داشتن Session (حذف علامت &)
+          exec startxfce4
           EOF
           sudo chmod +x /home/CynetAdmin/.vnc/xstartup
           
@@ -38,6 +50,7 @@ jobs:
       - name: 2. Install & Configure Hermes Desktop as Default
         run: |
           echo "🔄 Installing Hermes Desktop for CynetAdmin..."
+          # اجرای نصب در دایرکتوری خانگی کاربر برای جلوگیری از خطای Permission
           sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --include-desktop' || true
           
           echo "🔄 Setting Hermes Desktop to auto-start on login..."
@@ -56,6 +69,7 @@ jobs:
       - name: 3. Start VNC, noVNC & Cloudflare Quick Tunnel
         run: |
           echo "🔄 Starting VNC Server..."
+          # اجرای VNC از داخل دایرکتوری کاربر
           sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && vncserver :1 -geometry 1280x720 -depth 24 -localhost no'
           
           echo "🔄 Starting noVNC Web Proxy..."
