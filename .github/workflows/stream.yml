@@ -1,120 +1,399 @@
-name: Linux Cloud Desktop (noVNC + Cloudflare Quick Tunnel + Hermes Desktop)
+name: Hermes Desktop Frontend as Web App
 
 on:
   workflow_dispatch:
+    inputs:
+      keep_alive_minutes:
+        description: "Keep alive minutes (max 350)"
+        default: "55"
+        required: false
+
+concurrency:
+  group: hermes-web-frontend
+  cancel-in-progress: true
 
 jobs:
-  build:
+  serve-frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
-      - name: 1. Setup XFCE, VNC & noVNC
+      # ──────────────────────────────────────
+      # 1. Install dependencies
+      # ──────────────────────────────────────
+      - name: Install dependencies
         run: |
-          echo "🔄 Installing XFCE4, TigerVNC, and noVNC..."
+          set -eux
           sudo apt-get update
-          sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify wget curl dbus-x11 dbus net-tools
-          
-          echo "🔄 Creating user account..."
-          sudo useradd -m -s /bin/bash CynetAdmin
-          echo "CynetAdmin:Cynet@2026" | sudo chpasswd
-          
-          echo "🔄 Setting up VNC password and permissions..."
-          sudo -u CynetAdmin mkdir -p /home/CynetAdmin/.vnc
-          echo "Cynet@2026" | sudo -u CynetAdmin vncpasswd -f > /home/CynetAdmin/.vnc/passwd
-          sudo chown CynetAdmin:CynetAdmin /home/CynetAdmin/.vnc/passwd
-          sudo chmod 600 /home/CynetAdmin/.vnc/passwd
-          
-          # ساخت فایل‌های ضروری برای جلوگیری از خطاهای X11
-          sudo -u CynetAdmin touch /home/CynetAdmin/.Xauthority
-          sudo -u CynetAdmin touch /home/CynetAdmin/.Xresources
-          sudo chmod 600 /home/CynetAdmin/.Xauthority
-          
-          # ساخت دایرکتوری Runtime برای D-Bus (حل مشکل xfconfd)
-          UID_C=$(id -u CynetAdmin)
-          sudo mkdir -p /run/user/$UID_C
-          sudo chown CynetAdmin:CynetAdmin /run/user/$UID_C
-          sudo chmod 700 /run/user/$UID_C
-          
-          echo "🔄 Configuring XFCE startup (D-BUS FIXED)..."
-          cat << 'EOF' | sudo -u CynetAdmin tee /home/CynetAdmin/.vnc/xstartup > /dev/null
-          #!/bin/sh
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
-          export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          export XDG_CONFIG_DIRS=/etc/xdg
-          touch $HOME/.Xresources
-          xrdb -merge $HOME/.Xresources 2>/dev/null
-          # اجرای XFCE از طریق dbus-launch (راه‌حل قطعی خطای failsafe)
-          exec dbus-launch --exit-with-session startxfce4
-          EOF
-          sudo chmod +x /home/CynetAdmin/.vnc/xstartup
-          
-          echo "✅ Desktop environment installed and configured."
+          sudo apt-get install -y \
+            curl jq python3 nginx \
+            libfuse2 || sudo apt-get install -y libfuse2t64 || true
 
-      - name: 2. Install & Configure Hermes Desktop as Default
+      # ──────────────────────────────────────
+      # 2. Install Hermes Agent (backend)
+      # ──────────────────────────────────────
+      - name: Install Hermes Agent
         run: |
-          echo "🔄 Installing Hermes Desktop for CynetAdmin..."
-          sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --include-desktop' || true
-          
-          echo "🔄 Setting Hermes Desktop to auto-start on login..."
-          sudo -u CynetAdmin mkdir -p /home/CynetAdmin/.config/autostart
-          cat << 'EOF' | sudo -u CynetAdmin tee /home/CynetAdmin/.config/autostart/hermes-desktop.desktop > /dev/null
-          [Desktop Entry]
-          Type=Application
-          Name=Hermes Desktop
-          Exec=bash -c "export DISPLAY=:1 && cd /home/CynetAdmin && export PATH=\$HOME/.local/bin:\$HOME/.cargo/bin:\$HOME/.hermes/bin:\$PATH && sleep 5 && hermes desktop"
-          Terminal=false
-          EOF
-          sudo chown -R CynetAdmin:CynetAdmin /home/CynetAdmin/.config
-          
-          echo "✅ Hermes Desktop installed and set as default."
+          set -eux
+          curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+          export PATH="$HOME/.hermes/bin:$HOME/.local/bin:$PATH"
+          echo "$HOME/.hermes/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          hermes --version || true
 
-      - name: 3. Start VNC, noVNC & Cloudflare Quick Tunnel
+      # ──────────────────────────────────────
+      # 3. Configure Hermes
+      # ──────────────────────────────────────
+      - name: Configure Hermes
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          echo "🔄 Starting VNC Server..."
-          sudo -u CynetAdmin bash -c 'cd /home/CynetAdmin && vncserver :1 -geometry 1280x720 -depth 24 -localhost no -alwaysshared'
-          
-          echo "🔄 Starting noVNC Web Proxy..."
-          websockify -D --web=/usr/share/novnc 0.0.0.0:6080 localhost:5901
-          
-          echo "🔄 Installing cloudflared..."
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared-linux-amd64.deb
-          
-          echo "🔄 Starting Cloudflare Quick Tunnel..."
-          cloudflared tunnel --url http://localhost:6080 > cf_tunnel.log 2>&1 &
-          
-          sleep 8
-          
-          echo "🔍 Running Health Check..."
-          if ! netstat -tuln | grep -q ":5901 "; then
-            echo "❌ ERROR: VNC Server (Port 5901) is NOT running!"
-            cat /home/CynetAdmin/.vnc/*.log || true
-            exit 1
-          fi
-          if ! netstat -tuln | grep -q ":6080 "; then
-            echo "❌ ERROR: Websockify (Port 6080) is NOT running!"
-            exit 1
-          fi
-          echo "✅ Health Check Passed."
-          
-          CF_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cf_tunnel.log | head -n 1)
-          
-          echo ""
-          echo "==========================================================" 
-          echo "  >>> DESKTOP IS READY! <<<" 
-          echo "  🔗 LINK: $CF_URL" 
-          echo "  🔑 Password: Cynet@2026" 
-          echo "==========================================================" 
+          set -eux
+          mkdir -p ~/.hermes
+          ENV_FILE="$HOME/.hermes/.env"
+          touch "$ENV_FILE"
 
-      - name: 4. Keep Server Alive (6 Hours)
+          [ -n "${OPENAI_API_KEY:-}" ]    && echo "OPENAI_API_KEY=$OPENAI_API_KEY"       >> "$ENV_FILE"
+          [ -n "${ANTHROPIC_API_KEY:-}" ]  && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> "$ENV_FILE"
+          [ -n "${GEMINI_API_KEY:-}" ]     && echo "GEMINI_API_KEY=$GEMINI_API_KEY"       >> "$ENV_FILE"
+          [ -n "${GROQ_API_KEY:-}" ]       && echo "GROQ_API_KEY=$GROQ_API_KEY"           >> "$ENV_FILE"
+
+          echo "API_SERVER_ENABLED=true" >> "$ENV_FILE"
+
+      # ──────────────────────────────────────
+      # 4. Download & extract Hermes Desktop
+      # ──────────────────────────────────────
+      - name: Extract Hermes Desktop frontend
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "🔄 Keeping server alive..."
-          for i in {1..360}; do
-            sleep 60
-            if [ $((i % 10)) -eq 0 ]; then
-              echo "[$i/360] Server running..."
-              curl -s -o /dev/null "https://google.com"
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/hermes-desktop"
+          cd "$RUNNER_TEMP/hermes-desktop"
+
+          echo "=== Finding Hermes Desktop release ==="
+
+          # Try multiple repos
+          REPOS="fathah/hermes-desktop NousResearch/hermes-agent"
+          URL=""
+
+          for REPO in $REPOS; do
+            echo "Checking $REPO..."
+
+            if curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/releases/latest" > release.json; then
+
+              jq -r '.assets[].browser_download_url' release.json > assets.txt || true
+
+              if [ -s assets.txt ]; then
+                echo "Assets:"
+                cat assets.txt
+
+                # Prefer AppImage or deb
+                URL="$(grep -Ei '\.(AppImage|appimage)$' assets.txt | head -n1 || true)"
+
+                if [ -z "$URL" ]; then
+                  URL="$(grep -Ei '\.(deb)$' assets.txt | grep -Ei 'amd64' | head -n1 || true)"
+                fi
+
+                if [ -z "$URL" ]; then
+                  URL="$(grep -Ei '\.(zip|tar\.gz)$' assets.txt | head -n1 || true)"
+                fi
+
+                [ -n "$URL" ] && break
+              fi
             fi
           done
+
+          if [ -z "$URL" ]; then
+            echo "ERROR: No Hermes Desktop asset found"
+            exit 1
+          fi
+
+          echo "Downloading: $URL"
+          curl -L -o hermes_desktop "$URL"
+          FILE="$(basename "$URL")"
+          mv hermes_desktop "$FILE"
+
+          echo "=== Extracting ==="
+
+          FRONTEND_DIR=""
+
+          case "$FILE" in
+            *.AppImage)
+              chmod +x "$FILE"
+              ./"$FILE" --appimage-extract || ./"$FILE" --appimage-extract-and-run
+              EXTRACTED_DIR="squashfs-root"
+
+              # Find the renderer/frontend files
+              FRONTEND_DIR="$(find "$EXTRACTED_DIR" -maxdepth 4 -name 'index.html' -path '*renderer*' -exec dirname {} \; 2>/dev/null | head -n1)"
+
+              if [ -z "$FRONTEND_DIR" ]; then
+                FRONTEND_DIR="$(find "$EXTRACTED_DIR" -maxdepth 4 -name 'index.html' -exec dirname {} \; 2>/dev/null | head -n1)"
+              fi
+              ;;
+
+            *.deb)
+              dpkg-deb -x "$FILE" extracted_deb
+              FRONTEND_DIR="$(find extracted_deb -maxdepth 6 -name 'index.html' -exec dirname {} \; 2>/dev/null | head -n1)"
+              ;;
+
+            *.zip)
+              sudo apt-get install -y unzip
+              unzip -q "$FILE" -d extracted_zip
+              FRONTEND_DIR="$(find extracted_zip -maxdepth 6 -name 'index.html' -exec dirname {} \; 2>/dev/null | head -n1)"
+              ;;
+
+            *.tar.gz)
+              mkdir extracted_tar
+              tar -xzf "$FILE" -C extracted_tar
+              FRONTEND_DIR="$(find extracted_tar -maxdepth 6 -name 'index.html' -exec dirname {} \; 2>/dev/null | head -n1)"
+              ;;
+          esac
+
+          if [ -z "$FRONTEND_DIR" ]; then
+            echo "ERROR: Could not find frontend index.html"
+            echo "Searching for all index.html files..."
+            find . -name 'index.html' 2>/dev/null || true
+            echo "Searching for asar files..."
+            find . -name '*.asar' 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Found frontend at: $FRONTEND_DIR"
+
+          # Copy to a clean directory for serving
+          mkdir -p "$RUNNER_TEMP/web-frontend"
+          cp -r "$FRONTEND_DIR"/* "$RUNNER_TEMP/web-frontend/"
+
+          echo "Frontend files:"
+          find "$RUNNER_TEMP/web-frontend" -maxdepth 2 | head -n 50
+
+          # Save path for later steps
+          echo "FRONTEND_PATH=$RUNNER_TEMP/web-frontend" >> "$GITHUB_ENV"
+
+      # ──────────────────────────────────────
+      # 5. Patch frontend for browser use
+      # ──────────────────────────────────────
+      - name: Patch frontend for browser
+        run: |
+          set -euo pipefail
+
+          cd "$FRONTEND_PATH"
+
+          echo "=== Patching Electron-specific code ==="
+
+          # Create a shim for Electron APIs
+          cat > electron-shim.js << 'SHIM'
+// Electron API shim for browser compatibility
+window.electron = window.electron || {
+  ipcRenderer: {
+    invoke: async (...args) => {
+      console.warn('[Electron Shim] ipcRenderer.invoke:', ...args);
+      return null;
+    },
+    send: (...args) => {
+      console.warn('[Electron Shim] ipcRenderer.send:', ...args);
+    },
+    on: (...args) => {
+      console.warn('[Electron Shim] ipcRenderer.on:', ...args);
+      return () => {};
+    },
+    removeAllListeners: () => {},
+  },
+  shell: {
+    openExternal: (url) => {
+      window.open(url, '_blank');
+    },
+  },
+  dialog: {
+    showOpenDialog: async () => ({ canceled: true }),
+    showSaveDialog: async () => ({ canceled: true }),
+  },
+  clipboard: {
+    writeText: (text) => navigator.clipboard.writeText(text),
+    readText: () => navigator.clipboard.readText(),
+  },
+  notification: {
+    show: () => console.log('[Notification]'),
+  },
+  platform: 'linux',
+  versions: { electron: 'shim', chrome: navigator.userAgent },
+};
+
+// Handle require() calls that might exist
+if (typeof require !== 'undefined') {
+  const originalRequire = require;
+  require = (module) => {
+    if (module === 'electron') return window.electron;
+    console.warn('[Shim] require blocked:', module);
+    return {};
+  };
+}
+SHIM
+
+          echo "electron-shim.js created"
+
+          # Find all HTML files and inject the shim
+          find . -name '*.html' -exec sed -i 's|<head>|<head><script src="electron-shim.js"></script>|' {} \; 2>/dev/null || true
+
+          # Find all JS files and try to patch common Electron patterns
+          find . -name '*.js' -exec sed -i \
+            's|require("electron")|window.electron|g; s|require('"'"'electron'"'"')|window.electron|g' {} \; 2>/dev/null || true
+
+          echo "=== Patching complete ==="
+
+          # List what we have
+          echo "Final frontend structure:"
+          find . -maxdepth 3 | head -n 80
+
+      # ──────────────────────────────────────
+      # 6. Start Hermes backend
+      # ──────────────────────────────────────
+      - name: Start Hermes backend
+        run: |
+          set -eux
+          export PATH="$HOME/.hermes/bin:$HOME/.local/bin:$PATH"
+
+          nohup hermes serve \
+            --host 127.0.0.1 \
+            --port 9119 \
+            > "$RUNNER_TEMP/hermes-serve.log" 2>&1 &
+
+          echo "Waiting for backend..."
+          for i in $(seq 1 60); do
+            if curl -sf "http://127.0.0.1:9119" > /dev/null 2>&1; then
+              echo "Backend ready!"
+              break
+            fi
+            sleep 3
+          done
+
+      # ──────────────────────────────────────
+      # 7. Start web server for frontend
+      # ──────────────────────────────────────
+      - name: Serve frontend
+        run: |
+          set -eux
+
+          # Use Python HTTP server (simple, no config needed)
+          cd "$FRONTEND_PATH"
+          nohup python3 -m http.server 8080 --bind 127.0.0.1 \
+            > "$RUNNER_TEMP/frontend-server.log" 2>&1 &
+
+          sleep 2
+
+          # Verify
+          if curl -sf "http://127.0.0.1:8080" > /dev/null 2>&1; then
+            echo "Frontend server is running on port 8080"
+          else
+            echo "WARNING: Frontend server may not be ready"
+            cat "$RUNNER_TEMP/frontend-server.log" || true
+          fi
+
+      # ──────────────────────────────────────
+      # 8. Install cloudflared
+      # ──────────────────────────────────────
+      - name: Install cloudflared
+        run: |
+          set -eux
+          curl -L -o /tmp/cloudflared.deb \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i /tmp/cloudflared.deb
+          cloudflared --version
+
+      # ──────────────────────────────────────
+      # 9. Cloudflare Tunnel
+      # ──────────────────────────────────────
+      - name: Start Cloudflare Tunnel
+        id: tunnel
+        run: |
+          set -euo pipefail
+
+          cloudflared tunnel \
+            --url http://127.0.0.1:8080 \
+            --no-autoupdate \
+            > "$RUNNER_TEMP/cloudflared.log" 2>&1 &
+
+          URL=""
+          for i in $(seq 1 90); do
+            URL="$(grep -Eo 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' \
+              "$RUNNER_TEMP/cloudflared.log" | head -n1 || true)"
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+
+          if [ -z "$URL" ]; then
+            echo "ERROR: No tunnel URL"
+            tail -n 100 "$RUNNER_TEMP/cloudflared.log"
+            exit 1
+          fi
+
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      # ──────────────────────────────────────
+      # 10. Print info
+      # ──────────────────────────────────────
+      - name: Print access info
+        env:
+          TUNNEL_URL: ${{ steps.tunnel.outputs.url }}
+        run: |
+          set -eu
+
+          {
+            echo "## 🖥️ Hermes Desktop Frontend (Web)"
+            echo ""
+            echo "### Open this URL:"
+            echo ""
+            echo "**$TUNNEL_URL**"
+            echo ""
+            echo "---"
+            echo ""
+            echo "This is the **actual Hermes Desktop React UI** extracted from Electron"
+            echo "and served as a web app, connected to \`hermes serve\` backend."
+            echo ""
+            echo "⚠️ Some Electron-specific features (file dialogs, notifications, tray)"
+            echo "may not work in browser. Core chat/sessions/tools should work."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo ""
+          echo "========================================"
+          echo "  HERMES DESKTOP WEB: $TUNNEL_URL"
+          echo "========================================"
+
+      # ──────────────────────────────────────
+      # 11. Keep alive
+      # ──────────────────────────────────────
+      - name: Keep alive
+        env:
+          KEEP_MINUTES: ${{ github.event.inputs.keep_alive_minutes }}
+        run: |
+          set -eu
+          MINUTES="${KEEP_MINUTES:-55}"
+          [ "$MINUTES" -gt 350 ] && MINUTES=350
+          echo "Alive for $MINUTES min. Cancel when done."
+          END=$((SECONDS + MINUTES * 60))
+          while [ $SECONDS -lt $END ]; do
+            sleep 60
+            echo "[$(date)] running..."
+          done
+
+      # ──────────────────────────────────────
+      # 12. Logs
+      # ──────────────────────────────────────
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-web-logs
+          path: |
+            ${{ runner.temp }}/hermes-serve.log
+            ${{ runner.temp }}/frontend-server.log
+            ${{ runner.temp }}/cloudflared.log
+          if-no-files-found: ignore
