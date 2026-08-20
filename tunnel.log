@@ -55,3 +55,5 @@
 2026-08-20T23:20:21Z ERR Request failed error="stream 761 canceled by remote with error code 0" connIndex=0 dest=https://ace-enrolled-significant-crystal.trycloudflare.com/plugins/events event=0 ip=198.41.192.107 type=http
 2026-08-20T23:21:59Z ERR  error="stream 957 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
 2026-08-20T23:21:59Z ERR Request failed error="stream 957 canceled by remote with error code 0" connIndex=0 dest=https://ace-enrolled-significant-crystal.trycloudflare.com/plugins/events event=0 ip=198.41.192.107 type=http
+2026-08-20T23:24:08Z ERR  error="stream 1157 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-20T23:24:08Z ERR Request failed error="stream 1157 canceled by remote with error code 0" connIndex=0 dest=https://ace-enrolled-significant-crystal.trycloudflare.com/plugins/events event=0 ip=198.41.192.107 type=http
