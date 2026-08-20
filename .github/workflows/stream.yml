@@ -1,59 +1,95 @@
-name: Deploy DeepSeek Harness with Cloudflare Tunnel
+name: DeepSeek Harness WebUI + Cloudflare Tunnel
 
 on:
-  workflow_dispatch: # با دکمه‌ی Run workflow دستی شروع میشه
-
-env:
-  NODE_VERSION: '22.19.0'
+  workflow_dispatch: # اجرای دستی از تب Actions
 
 jobs:
-  deploy:
+  run-harness:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # دسترسی برای ذخیره و Push کردن فایل‌ها روی گیت‌هاب
 
     steps:
-      - name: Checkout repository
+      # ۱. دریافت کدهای مخزن
+      - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
+      # ۲. نصب Node.js 22 (پیش‌نیاز رسمی DeepSeek Harness)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 22
 
-      - name: Install DeepSeek Harness
+      # ۳. دانلود و نصب کلاینت Cloudflared
+      - name: Install Cloudflared
         run: |
-          npm install -g @deepseek-ai/dsh
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+          rm cloudflared-linux-amd64.deb
 
-      - name: Start dsh web in background
+      # ۴. تنظیم هویت Git برای کامیت خودکار
+      - name: Configure Git Identity
         run: |
-          nohup dsh web --host 0.0.0.0 --port 3080 > dsh.log 2>&1 &
-          sleep 10
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Install cloudflared
+      # ۵. اجرای WebUI دیپ‌سیک، تانل کلادفلر و همگام‌سازی فایل‌ها
+      - name: Start DeepSeek Harness & Cloudflare Tunnel
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
-          chmod +x cloudflared
+          echo "=================================================="
+          echo "🚀 در حال راه‌اندازی DeepSeek Harness WebUI..."
+          echo "=================================================="
 
-      - name: Create Cloudflare Quick Tunnel
-        run: |
-          ./cloudflared tunnel --url http://localhost:3080 > cloudflare.log 2>&1 &
+          # اجرای سرویس وب روی پورت 3080 در پس‌زمینه
+          npx -y @deepseek-ai/dsh web --port 3080 --no-open > harness.log 2>&1 &
+          HARNESS_PID=$!
 
-      - name: Wait for tunnel and extract URL
-        run: |
-          sleep 15
-          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' cloudflare.log | head -n 1 > tunnel_url.txt
+          # چند ثانیه مکث برای آماده‌سازی سرور وب
+          sleep 6
 
-      - name: Upload logs and URL as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dsh-logs
-          path: |
-            dsh.log
-            cloudflare.log
-            tunnel_url.txt
+          # شروع تونل کلادفلر متصل به پورت 3080
+          cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
+          TUNNEL_PID=$!
 
-      - name: Keep workflow running
-        run: |
-          echo "✅ Web UI is running!"
-          echo "🌐 Tunnel URL: $(cat tunnel_url.txt)"
-          echo "⏳ This workflow will keep running. You can stop it from the Actions tab."
-          sleep 30d
+          # استخراج و نمایش لینک اختصاصی در لاگ
+          echo "⏳ در حال ساخت لینک دسترسی کلادفلر..."
+          sleep 5
+          for i in {1..15}; do
+            URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' tunnel.log | head -n 1)
+            if [ -n "$URL" ]; then
+              echo ""
+              echo "============================================================"
+              echo "🌐 لینک ورود به DeepSeek Harness WebUI:"
+              echo "👉 $URL"
+              echo "============================================================"
+              echo ""
+              break
+            fi
+            sleep 2
+          done
+
+          # تابع ذخیره و کامیت خودکار تغییرات روی مخزن (استفاده از گیت‌هاب به عنوان SSD)
+          sync_to_repo() {
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "📦 در حال کامیت و پوش تغییرات روی مخزن..."
+              git add -A
+              git commit -m "Auto-save workspace: $(date '+%Y-%m-%d %H:%M:%S') [skip ci]" || true
+              git push origin HEAD || true
+              echo "✅ تغییرات با موفقیت ذخیره شدند."
+            fi
+          }
+
+          # ذخیره نهایی در صورت توقف یا کنسل شدن ورک‌فلو
+          trap sync_to_repo EXIT
+
+          # چرخه فعال نگه داشتن رانر و بکاپ خودکار هر ۲ دقیقه
+          echo "⚡ رانر فعال است و تغییرات هر ۲ دقیقه روی مخزن ذخیره می‌شوند..."
+          while kill -0 $HARNESS_PID 2>/dev/null; do
+            sleep 120
+            sync_to_repo
+          done
