@@ -43,3 +43,9 @@
 2026-08-20T23:10:01Z INF precheck component="TCP Connectivity" details="HTTP/2 connection successful" run_id=c2374a0d-c0a4-4618-8095-f11449505b4d status=pass target=region2.v2.argotunnel.com
 2026-08-20T23:10:01Z INF precheck component="Cloudflare API" details="API is reachable" run_id=c2374a0d-c0a4-4618-8095-f11449505b4d status=pass target=api.cloudflare.com:443
 2026-08-20T23:10:01Z INF precheck complete hard_fail=false run_id=c2374a0d-c0a4-4618-8095-f11449505b4d suggested_protocol=quic
+2026-08-20T23:12:15Z ERR  error="stream 193 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-20T23:12:15Z ERR Request failed error="stream 193 canceled by remote with error code 0" connIndex=0 dest=https://ace-enrolled-significant-crystal.trycloudflare.com/plugins/events event=0 ip=198.41.192.107 type=http
+2026-08-20T23:12:40Z ERR  error="stream 457 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-20T23:12:40Z ERR Request failed error="stream 457 canceled by remote with error code 0" connIndex=0 dest=https://ace-enrolled-significant-crystal.trycloudflare.com/plugins/events event=0 ip=198.41.192.107 type=http
+2026-08-20T23:13:01Z ERR  error="stream 509 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-20T23:13:01Z ERR Request failed error="stream 509 canceled by remote with error code 0" connIndex=0 dest=https://ace-enrolled-significant-crystal.trycloudflare.com/plugins/events event=0 ip=198.41.192.107 type=http
