@@ -1,13 +1,13 @@
 name: DeepSeek Harness WebUI + Cloudflare Tunnel
 
 on:
-  workflow_dispatch: # اجرای دستی از تب Actions
+  workflow_dispatch:
 
 jobs:
   run-harness:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # دسترسی برای ذخیره و Push کردن فایل‌ها روی گیت‌هاب
+      contents: write
 
     steps:
       # ۱. دریافت کدهای مخزن
@@ -17,7 +17,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ۲. نصب Node.js 22 (پیش‌نیاز رسمی DeepSeek Harness)
+      # ۲. نصب Node.js نسخه 22
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -30,41 +30,53 @@ jobs:
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
 
-      # ۴. تنظیم هویت Git برای کامیت خودکار
+      # ۴. نصب رسمی پکیج DeepSeek Harness
+      - name: Install DeepSeek Harness
+        run: |
+          echo "📦 در حال دانلود و نصب کامل پکیج DeepSeek Harness..."
+          npm install -g @deepseek-ai/dsh@latest
+
+      # ۵. تنظیم هویت Git برای کامیت خودکار
       - name: Configure Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      # ۵. اجرای WebUI دیپ‌سیک، تانل کلادفلر و همگام‌سازی فایل‌ها
+      # ۶. اجرای وب و تونل و تست سلامت
       - name: Start DeepSeek Harness & Cloudflare Tunnel
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           echo "=================================================="
-          echo "🚀 در حال راه‌اندازی DeepSeek Harness WebUI..."
+          echo "🚀 در حال اجرای DeepSeek Harness WebUI..."
           echo "=================================================="
 
-          # اجرای سرویس وب روی پورت 3080 در پس‌زمینه
-          npx -y @deepseek-ai/dsh web --port 3080 --no-open > harness.log 2>&1 &
+          # اجرای سرور در پس‌زمینه
+          dsh web --port 3080 --no-open > harness.log 2>&1 &
           HARNESS_PID=$!
 
-          # چند ثانیه مکث برای آماده‌سازی سرور وب
-          sleep 6
+          # بررسی مداوم تا زمان فعال شدن پورت 3080
+          echo "⏳ در حال انتظار برای آماده‌سازی کامل سرور وب..."
+          for i in {1..40}; do
+            if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
+              echo "✅ سرور دیپ‌سیک روی پورت 3080 با موفقیت آماده شد!"
+              break
+            fi
+            sleep 3
+          done
 
-          # شروع تونل کلادفلر متصل به پورت 3080
+          # اجرای تونل کلادفلر
           cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
           TUNNEL_PID=$!
 
-          # استخراج و نمایش لینک اختصاصی در لاگ
-          echo "⏳ در حال ساخت لینک دسترسی کلادفلر..."
+          # استخراج و نمایش لینک عمومی در لاگ
           sleep 5
           for i in {1..15}; do
             URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' tunnel.log | head -n 1)
             if [ -n "$URL" ]; then
               echo ""
               echo "============================================================"
-              echo "🌐 لینک ورود به DeepSeek Harness WebUI:"
+              echo "🌐 لینک ورود به DeepSeek Harness WebUI آماده است:"
               echo "👉 $URL"
               echo "============================================================"
               echo ""
@@ -73,7 +85,7 @@ jobs:
             sleep 2
           done
 
-          # تابع ذخیره و کامیت خودکار تغییرات روی مخزن (استفاده از گیت‌هاب به عنوان SSD)
+          # تابع ذخیره و کامیت خودکار تغییرات روی مخزن
           sync_to_repo() {
             if [ -n "$(git status --porcelain)" ]; then
               echo "📦 در حال کامیت و پوش تغییرات روی مخزن..."
@@ -84,11 +96,10 @@ jobs:
             fi
           }
 
-          # ذخیره نهایی در صورت توقف یا کنسل شدن ورک‌فلو
           trap sync_to_repo EXIT
 
-          # چرخه فعال نگه داشتن رانر و بکاپ خودکار هر ۲ دقیقه
-          echo "⚡ رانر فعال است و تغییرات هر ۲ دقیقه روی مخزن ذخیره می‌شوند..."
+          # حلقه زنده نگه داشتن رانر و بکاپ منظم
+          echo "⚡ رانر فعال است..."
           while kill -0 $HARNESS_PID 2>/dev/null; do
             sleep 120
             sync_to_repo
