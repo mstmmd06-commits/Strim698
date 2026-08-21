@@ -38,7 +38,7 @@ jobs:
           npm install -g opencode-ai@latest
           opencode --version
 
-      - name: Setup Workspace, Boilerplate & Config
+      - name: Setup Workspace & Initialize Project (FIX)
         env:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
@@ -47,18 +47,35 @@ jobs:
           mkdir -p opencode_workspace
           cd opencode_workspace
           
-          # 1. ساخت فایل‌های پایه تا OpenCode آن را به‌عنوان پروژه بشناسد
+          # ساخت فایل‌های پایه
           echo "# My OpenCode Project" > README.md
-          echo '{"name": "opencode-project", "version": "1.0.0", "description": "A project managed by OpenCode Agent"}' > package.json
+          echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
           
-          # 2. ساخت یک گیت داخلی تا OpenCode این پوشه را به‌عنوان "Project Root" شناسایی کند
+          # ساخت فایل AGENTS.md که به OpenCode می‌گوید این یک پروژه معتبر است
+          cat > AGENTS.md << 'EOF'
+# Project: My OpenCode Project
+
+## Overview
+This is a coding project managed by OpenCode AI Agent.
+
+## Guidelines
+- Use modern coding practices
+- Keep code clean and well-documented
+- Test before committing
+
+## Stack
+- Language: To be determined
+- Framework: To be determined
+EOF
+          
+          # ساخت گیت داخلی
           git init -b main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "Initial project setup by OpenCode Agent"
+          git commit -m "Initial project setup with AGENTS.md"
           
-          # 3. ساخت فایل کانفیگ OpenCode (اتصال به 9router)
+          # ساخت فایل کانفیگ OpenCode
           cat > opencode.json << EOF
           {
             "provider": {
@@ -76,7 +93,8 @@ jobs:
           }
           EOF
           
-          echo "=== OpenCode Project Ready ==="
+          echo "=== Project Initialized with AGENTS.md ==="
+          ls -la
 
       - name: Start Cloudflare Tunnel
         run: |
@@ -112,7 +130,7 @@ jobs:
           SERVER_READY=false
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
-              echo "✅ OpenCode WebUI is ready and responding"
+              echo "✅ OpenCode WebUI is ready"
               SERVER_READY=true
               break
             fi
@@ -140,8 +158,11 @@ jobs:
           echo "=========================================="
           echo "🔗 OpenCode WebUI URL: $TUNNEL_URL"
           echo "=========================================="
-          echo "✅ پروژه در پوشه 'opencode_workspace' شناسایی شد."
-          echo "هر 30 ثانیه فایل‌های شما به ریپازیتوری گیت‌هاب Push می‌شوند."
+          echo ""
+          echo "📝 راهنمای شروع:"
+          echo "1. اگر پروژه خودکار لود نشد، روی 'Add Project' یا آیکون پوشه کلیک کن"
+          echo "2. مسیر پوشه را وارد کن: /home/runner/work/Strim698/Strim698/opencode_workspace"
+          echo "3. روی 'Create Session' کلیک کن و شروع به چت کن!"
           echo ""
           
           while kill -0 $OPENCODE_PID 2>/dev/null; do
