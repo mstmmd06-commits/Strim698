@@ -64,17 +64,20 @@ jobs:
         env:
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
-          echo "llm-pi-ai:" > "$HOME/.dsh/profiles/web/settings.yaml"
-          echo "  providers:" >> "$HOME/.dsh/profiles/web/settings.yaml"
-          echo "    nine-router:" >> "$HOME/.dsh/profiles/web/settings.yaml"
-          echo "      apiKeyEnv: NINE_ROUTER_API_KEY" >> "$HOME/.dsh/profiles/web/settings.yaml"
-          echo "      api: openai-completions" >> "$HOME/.dsh/profiles/web/settings.yaml"
-          echo "      baseURL: $NINE_ROUTER_BASE_URL" >> "$HOME/.dsh/profiles/web/settings.yaml"
+          # نوشتن فایل settings با ساختار درست (nine-router در سطح providers)
+          cat > "$HOME/.dsh/profiles/web/settings.yaml" << EOF
+          providers:
+            nine-router:
+              apiKeyEnv: NINE_ROUTER_API_KEY
+              api: openai-completions
+              baseURL: $NINE_ROUTER_BASE_URL
+          EOF
           
+          # کپی در مسیر ریشه برای اطمینان
           cp "$HOME/.dsh/profiles/web/settings.yaml" "$HOME/.dsh/settings.yaml"
           
           echo "=== settings.yaml ==="
-          cat "$HOME/.dsh/profiles/web/settings.yaml"
+          cat "$HOME/.dsh/settings.yaml"
 
       - name: Start services
         env:
@@ -82,8 +85,10 @@ jobs:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
+          # اجرای Cloudflare Tunnel
           cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
           
+          # گرفتن URL تونل
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
@@ -94,32 +99,36 @@ jobs:
           done
           
           if [ -z "$URL" ]; then
+            echo "❌ Tunnel URL not found. Logs:"
             cat tunnel.log
             exit 1
           fi
           
           HOSTNAME=$(echo "$URL" | sed 's|^https://||')
           
-          dsh web --port 3080 --no-open --trusted-host "$HOSTNAME" > harness.log 2>&1 &
+          # اجرای هارنس با حالت سرور و اعتماد به دامنه تونل
+          dsh web --port 3080 --host 0.0.0.0 --no-open --trusted-host "$HOSTNAME" > harness.log 2>&1 &
           HARNESS_PID=$!
           
+          # منتظر آماده شدن سرور
           for i in {1..40}; do
             if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
-              echo "Web server ready"
+              echo "✅ Web server ready"
               break
             fi
             sleep 2
           done
           
           echo ""
-          echo "URL: $URL"
+          echo "🔗 URL: $URL"
           echo ""
-          echo "After login:"
-          echo "1. Settings -> Models"
-          echo "2. Click nine-router"
-          echo "3. Click Fetch available models"
+          echo "📌 دستورالعمل:"
+          echo "   1. به Settings -> Models برو"
+          echo "   2. ارائه‌دهنده nine-router رو انتخاب کن"
+          echo "   3. روی Fetch available models کلیک کن"
           echo ""
           
+          # تابع ذخیره خودکار
           sync_to_repo() {
             if [ -n "$(git status --porcelain)" ]; then
               git add -A
@@ -130,6 +139,7 @@ jobs:
           
           trap sync_to_repo EXIT SIGINT SIGTERM
           
+          # حلقه نگهداری اجرا
           while kill -0 $HARNESS_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
