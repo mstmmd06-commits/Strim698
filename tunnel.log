@@ -43,3 +43,5 @@
 2026-08-21T22:54:53Z INF precheck component="TCP Connectivity" details="HTTP/2 connection successful" run_id=a9a62dbe-f035-4ec8-bc8e-a2a2b3eb5997 status=pass target=region2.v2.argotunnel.com
 2026-08-21T22:54:53Z INF precheck component="Cloudflare API" details="API is reachable" run_id=a9a62dbe-f035-4ec8-bc8e-a2a2b3eb5997 status=pass target=api.cloudflare.com:443
 2026-08-21T22:54:53Z INF precheck complete hard_fail=false run_id=a9a62dbe-f035-4ec8-bc8e-a2a2b3eb5997 suggested_protocol=quic
+2026-08-21T22:55:50Z ERR  error="stream 61 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:4096
+2026-08-21T22:55:50Z ERR Request failed error="stream 61 canceled by remote with error code 0" connIndex=0 dest=https://cognitive-eau-tub-varied.trycloudflare.com/global/event event=0 ip=198.41.192.47 type=http
