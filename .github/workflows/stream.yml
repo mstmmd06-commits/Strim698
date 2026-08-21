@@ -63,13 +63,13 @@ jobs:
           echo "🔌 در حال نصب پلاگین‌های واجب..."
           echo "=================================================="
           
-          # بازارچه پلاگین داخل هارنس
+          # بازارچه پلاگین از npm (نه git)
           echo "📦 نصب dsh-market (بازارچه پلاگین)..."
-          dsh plugin --profile web add github:dsh-market/dsh-market || echo "⚠️ dsh-market نصب نشد، ادامه می‌دهیم..."
+          dsh plugin --profile web add dshmarket || echo "⚠️ dsh-market نصب نشد"
           
-          # کشف پلاگین از محیط بیرون
-          echo "🔍 نصب dsh-find-plugin (کشف پلاگین)..."
-          dsh plugin --profile web add github:dsh-find-plugin/dsh-find-plugin || echo "⚠️ dsh-find-plugin نصب نشد، ادامه می‌دهیم..."
+          # پلاگین‌های دیگر از npm
+          echo "🔍 نصب پلاگین‌های پیشنهادی..."
+          dsh plugin --profile web add dsh-web-launcher || echo "⚠️ dsh-web-launcher نصب نشد"
           
           echo "✅ نصب پلاگین‌های واجب کامل شد!"
 
@@ -137,8 +137,8 @@ jobs:
           echo "============================================================"
           echo ""
           echo "✅ پلاگین‌های نصب شده:"
-          echo "   - dsh-market (بازارچه پلاگین)"
-          echo "   - dsh-find-plugin (کشف پلاگین)"
+          echo "   - dsh-market (بازارچه پلاگین - از npm)"
+          echo "   - dsh-web-launcher (راه‌انداز سریع)"
           echo ""
 
           # تابع ذخیره‌سازی روی مخزن
