@@ -27,8 +27,10 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install Cloudflared
+      - name: Install SQLite3 and Cloudflared
         run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
@@ -109,13 +111,9 @@ jobs:
           cd opencode_workspace
           PROJECT_PATH=$(pwd)
           echo "Project path: $PROJECT_PATH"
-          
-          # Start OpenCode WebUI
           opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
           echo "OpenCode PID: $OPENCODE_PID"
-          
-          # Wait for server to be ready
           SERVER_READY=false
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
@@ -125,49 +123,28 @@ jobs:
             fi
             sleep 2
           done
-          
           if [ "$SERVER_READY" = false ]; then
             echo "OpenCode failed to start"
             cat ../opencode.log
             exit 1
           fi
-          
-          # Wait a bit for database initialization
           sleep 5
-          
           echo ""
           echo "=== Manually registering project in SQLite database ==="
-          echo "This is a workaround for OpenCode bug #37096"
-          
-          # Find the OpenCode database file
           DB_PATH="$HOME/.local/share/opencode/opencode.db"
-          
           if [ -f "$DB_PATH" ]; then
             echo "Found database at: $DB_PATH"
-            
-            # Generate a unique project ID (UUID-like)
-            PROJECT_ID=$(cat /proc/sys/kernel/random/uuid | tr -d '-' | head -c 16)
+            PROJECT_ID=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
             echo "Generated project ID: $PROJECT_ID"
-            
-            # Insert project record directly into database
-            # Using sqlite3 command to add the project
-            sqlite3 "$DB_PATH" <<EOF
-            INSERT INTO project (id, worktree, vcs) 
-            VALUES ('$PROJECT_ID', '$PROJECT_PATH', 'git');
-            EOF
-            
-            echo "Project successfully registered in database!"
-            
-            # Verify the insertion
-            echo "Verifying project registration:"
-            sqlite3 "$DB_PATH" "SELECT id, worktree, vcs FROM project WHERE id = '$PROJECT_ID';"
-            
+            SQL_CMD="INSERT INTO project (id, worktree, vcs) VALUES ('$PROJECT_ID', '$PROJECT_PATH', 'git');"
+            echo "Executing SQL: $SQL_CMD"
+            sqlite3 "$DB_PATH" "$SQL_CMD"
+            echo "Project registered!"
+            sqlite3 "$DB_PATH" "SELECT id, worktree FROM project WHERE id = '$PROJECT_ID';"
           else
-            echo "Warning: Database file not found at $DB_PATH"
-            echo "The project may not be registered automatically"
-            echo "You will need to manually add the project in the Web UI"
+            echo "Warning: Database not found at $DB_PATH"
+            echo "You may need to manually add project in Web UI"
           fi
-          
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
@@ -176,18 +153,14 @@ jobs:
               git push origin HEAD || true
             fi
           }
-          
           trap sync_to_repo EXIT SIGINT SIGTERM
-          
           echo ""
           echo "=========================================="
           echo "OpenCode WebUI URL: $TUNNEL_URL"
           echo "=========================================="
           echo ""
           echo "The project should now appear in the sidebar!"
-          echo "If you still see 'Add Project' button, try refreshing the page."
           echo ""
-          
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
