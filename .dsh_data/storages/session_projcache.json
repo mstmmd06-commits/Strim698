@@ -242,7 +242,7 @@
         "rows": {
           "sessionStats": {
             "ver": 1,
-            "seq": 2,
+            "seq": 15,
             "val": {
               "turns": 0,
               "steps": 0,
@@ -259,17 +259,17 @@
           },
           "title": {
             "ver": 1,
-            "seq": 2,
+            "seq": 15,
             "val": null
           },
           "goal": {
             "ver": 4,
-            "seq": 2,
+            "seq": 15,
             "val": null
           },
           "tokenUsage": {
             "ver": 1,
-            "seq": 2,
+            "seq": 15,
             "val": {
               "totals": {
                 "uncachedInputTokens": 0,
@@ -282,14 +282,14 @@
           },
           "contextPressure": {
             "ver": 4,
-            "seq": 2,
+            "seq": 15,
             "val": {
               "surfaceTokens": 0
             }
           },
           "contextBreakdown": {
             "ver": 2,
-            "seq": 2,
+            "seq": 15,
             "val": {
               "systemTokens": 0,
               "toolsTokens": 0,
@@ -298,7 +298,7 @@
           },
           "subagentTiming": {
             "ver": 2,
-            "seq": 2,
+            "seq": 15,
             "val": {
               "descriptorSeen": false,
               "settledMs": 0
@@ -306,12 +306,12 @@
           },
           "subagent": {
             "ver": 2,
-            "seq": 2,
+            "seq": 15,
             "val": {}
           },
           "permissions": {
             "ver": 1,
-            "seq": 2,
+            "seq": 15,
             "val": {
               "preset": "workspace-write",
               "sandbox": "workspace-write",
@@ -320,7 +320,7 @@
           },
           "sessionListMetadata": {
             "ver": 1,
-            "seq": 2,
+            "seq": 15,
             "val": {
               "blank": true,
               "lastPromptAt": null
@@ -328,17 +328,17 @@
           },
           "imageLimits": {
             "ver": 1,
-            "seq": 2,
+            "seq": 15,
             "val": null
           },
           "todos": {
             "ver": 2,
-            "seq": 2,
+            "seq": 15,
             "val": null
           },
           "plan": {
             "ver": 2,
-            "seq": 2,
+            "seq": 15,
             "val": {
               "active": false,
               "wanted": null,
