@@ -1,0 +1,6 @@
+llm-pi-ai:
+  providers:
+    nine-router:
+      apiKeyEnv: NINE_ROUTER_API_KEY
+      api: openai-completions
+      baseURL: https://9router-production-d138.up.railway.app/v1

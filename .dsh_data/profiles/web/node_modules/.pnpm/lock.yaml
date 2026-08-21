@@ -1,32 +1,39 @@
 lockfileVersion: '9.0'
 
 settings:
-  autoInstallPeers: false
+  autoInstallPeers: true
   excludeLinksFromLockfile: false
 
 importers:
 
   .:
     dependencies:
-      dsh-web-launcher:
-        specifier: ^0.3.2
-        version: 0.3.2
       dshmarket:
         specifier: ^1.16.0
-        version: 1.16.0
+        version: 1.16.0(@deepseek-ai/cordis@4.0.1)
 
 packages:
 
+  '@deepseek-ai/cordis@4.0.1':
+    resolution: {integrity: sha512-YBdskTU2Po1kru3GgcUWUbkTsPMA9LkSQDAY8rBkFJeajdgcQad3QPJZE26JyK99Xb6HaASvoXg2DSUTeN/0Nw==}
+    hasBin: true
+    peerDependencies:
+      '@deepseek-ai/cordis-plugin-include': ^1.0.6
+      '@deepseek-ai/cordis-plugin-loader': ^1.0.2
+    peerDependenciesMeta:
+      '@deepseek-ai/cordis-plugin-include':
+        optional: true
+      '@deepseek-ai/cordis-plugin-loader':
+        optional: true
+
+  '@deepseek-ai/cosmokit@1.8.2':
+    resolution: {integrity: sha512-muBOKtSrUKU5m/xpq8ZXWL6hQ/jgd4PhU2PqH97bcxIiLEJfNwZOGQEx4t/aS/GgxRAR+ra9pMHPMtTHU4sqqA==}
+
+  '@standard-schema/spec@1.1.0':
+    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
-
-  dsh-web-launcher@0.3.2:
-    resolution: {integrity: sha512-QYVfd1TEKkmmdygPxiIaOFqb1OU1E61KqYFDkdPaYUzVKsygYaER/uNyv1ER3LmRcNb2yPM8ymjX+arBA8IQDw==}
-    engines: {node: ^22.19 || >=24}
-    peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.1-rc.1
-      '@deepseek-ai/dsh-tools': '*'
-      '@deepseek-ai/schemastery': ^3.18.1
 
   dshmarket@1.16.0:
     resolution: {integrity: sha512-WuHVUQzzECcK0gWdf0Q84KVvKNYNLTbF/GEh2TpBZEeekEI9hbZlqRu3kDwfVDciRgb49GtD0ost1sn45BbfMQ==}
@@ -47,12 +54,20 @@ packages:
 
 snapshots:
 
+  '@deepseek-ai/cordis@4.0.1':
+    dependencies:
+      '@deepseek-ai/cosmokit': 1.8.2
+      '@standard-schema/spec': 1.1.0
+
+  '@deepseek-ai/cosmokit@1.8.2': {}
+
+  '@standard-schema/spec@1.1.0': {}
+
   argparse@2.0.1: {}
 
-  dsh-web-launcher@0.3.2: {}
-
-  dshmarket@1.16.0:
+  dshmarket@1.16.0(@deepseek-ai/cordis@4.0.1):
     dependencies:
+      '@deepseek-ai/cordis': 4.0.1
       js-yaml: 4.3.1
       undici: 7.29.0
 
