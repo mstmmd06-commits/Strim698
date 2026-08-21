@@ -119,6 +119,120 @@
             }
           }
         }
+      },
+      "session-c2ea1998-ccb6-4184-b14f-755bef409c95": {
+        "identity": {
+          "createdAt": 1787325086494,
+          "cwd": "/home/runner/work"
+        },
+        "rows": {
+          "sessionStats": {
+            "ver": 1,
+            "seq": 15,
+            "val": {
+              "turns": 1,
+              "steps": 1,
+              "llmMs": 0,
+              "toolMs": 0,
+              "ttftMs": 0,
+              "ttftSteps": 0,
+              "decodeMs": 0,
+              "decodeTokens": 0,
+              "lastTurn": 1,
+              "openStep": null,
+              "pendingCalls": {}
+            }
+          },
+          "title": {
+            "ver": 1,
+            "seq": 15,
+            "val": "نن"
+          },
+          "goal": {
+            "ver": 4,
+            "seq": 15,
+            "val": null
+          },
+          "tokenUsage": {
+            "ver": 1,
+            "seq": 15,
+            "val": {
+              "totals": {
+                "uncachedInputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0
+              },
+              "last": null
+            }
+          },
+          "contextPressure": {
+            "ver": 4,
+            "seq": 15,
+            "val": {
+              "surfaceTokens": 132,
+              "contextWindow": 1000000
+            }
+          },
+          "contextBreakdown": {
+            "ver": 2,
+            "seq": 15,
+            "val": {
+              "systemTokens": 1585,
+              "toolsTokens": 6475,
+              "messageTokens": 132
+            }
+          },
+          "subagentTiming": {
+            "ver": 2,
+            "seq": 15,
+            "val": {
+              "descriptorSeen": false,
+              "settledMs": 0
+            }
+          },
+          "subagent": {
+            "ver": 2,
+            "seq": 15,
+            "val": {}
+          },
+          "permissions": {
+            "ver": 1,
+            "seq": 15,
+            "val": {
+              "preset": "workspace-write",
+              "sandbox": "workspace-write",
+              "approval": "ask"
+            }
+          },
+          "sessionListMetadata": {
+            "ver": 1,
+            "seq": 15,
+            "val": {
+              "blank": false,
+              "lastPromptAt": 1787325103379
+            }
+          },
+          "imageLimits": {
+            "ver": 1,
+            "seq": 15,
+            "val": null
+          },
+          "todos": {
+            "ver": 2,
+            "seq": 15,
+            "val": null
+          },
+          "plan": {
+            "ver": 2,
+            "seq": 15,
+            "val": {
+              "active": false,
+              "wanted": null,
+              "running": null
+            }
+          }
+        }
       }
     }
   }
