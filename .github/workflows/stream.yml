@@ -1,10 +1,10 @@
-name: DeepSeek Harness WebUI + Cloudflare Tunnel
+name: OpenCode WebUI + Cloudflare Tunnel
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-harness:
+  run-opencode:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -21,72 +21,54 @@ jobs:
         with:
           node-version: 22
 
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
-
       - name: Install Cloudflared
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
 
-      - name: Install DeepSeek Harness
-        run: npm install -g @deepseek-ai/dsh@latest
-
-      - name: Setup Storage and Git
+      - name: Install OpenCode
         run: |
-          mkdir -p .dsh_data .deepseek_data workspace
-          ln -sfn "$(pwd)/.dsh_data" "$HOME/.dsh"
-          ln -sfn "$(pwd)/.deepseek_data" "$HOME/.deepseek"
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          npm install -g opencode-ai@latest
+          opencode --version
 
-      - name: Clean profile
+      - name: Setup Workspace
         run: |
-          rm -rf "$HOME/.dsh/profiles/web"
-          mkdir -p "$HOME/.dsh/profiles/web"
+          mkdir -p workspace .opencode_data
+          cd workspace
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create package.json
-        run: |
-          cd "$HOME/.dsh/profiles/web"
-          echo '{"name":"dsh-profile-web","private":true,"dependencies":{"dshmarket":"^1.16.0"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","dshmarket"]}}}' > package.json
-          cat package.json
-
-      - name: Install dependencies
-        run: |
-          cd "$HOME/.dsh/profiles/web"
-          pnpm install --no-frozen-lockfile
-
-      - name: Create settings.yaml (FIXED)
+      - name: Create OpenCode Config
         env:
-          NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
-        run: |
-          # ساختار صحیح با کلید ریشه‌ای llm-pi-ai
-          cat > "$HOME/.dsh/profiles/web/settings.yaml" << EOF
-          llm-pi-ai:
-            providers:
-              nine-router:
-                apiKeyEnv: NINE_ROUTER_API_KEY
-                api: openai-completions
-                baseURL: $NINE_ROUTER_BASE_URL
-          EOF
-          
-          cp "$HOME/.dsh/profiles/web/settings.yaml" "$HOME/.dsh/settings.yaml"
-          
-          echo "=== settings.yaml ==="
-          cat "$HOME/.dsh/settings.yaml"
-
-      - name: Start services
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          # اجرای Cloudflare Tunnel
-          cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
+          cat > workspace/opencode.json << EOF
+          {
+            "provider": {
+              "name": "nine-router",
+              "apiKey": "$NINE_ROUTER_API_KEY",
+              "baseURL": "$NINE_ROUTER_BASE_URL",
+              "model": "deepseek-v3"
+            },
+            "mcp": {},
+            "agents": {
+              "general": {
+                "model": "deepseek-v3"
+              }
+            }
+          }
+          EOF
+          
+          echo "=== OpenCode Config ==="
+          cat workspace/opencode.json
+
+      - name: Start Cloudflare Tunnel
+        run: |
+          cloudflared tunnel --url http://127.0.0.1:4096 > tunnel.log 2>&1 &
           
           URL=""
           for i in {1..30}; do
@@ -103,40 +85,71 @@ jobs:
             exit 1
           fi
           
-          HOSTNAME=$(echo "$URL" | sed 's|^https://||')
+          echo "✅ Tunnel URL: $URL"
+          echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
+
+      - name: Start OpenCode WebUI
+        env:
+          NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
+          NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          cd workspace
           
-          # حذف --host 0.0.0.0 که باعث کرش می‌شد. پیش‌فرض 127.0.0.1 برای تونل کاملاً کافی و امن است.
-          dsh web --port 3080 --no-open --trusted-host "$HOSTNAME" > harness.log 2>&1 &
-          HARNESS_PID=$!
+          # اجرای OpenCode WebUI در پس‌زمینه
+          opencode web --port 4096 --host 127.0.0.1 > ../opencode.log 2>&1 &
+          OPENCODE_PID=$!
           
+          echo "✅ OpenCode PID: $OPENCODE_PID"
+          
+          # انتظار برای آماده شدن سرور
           for i in {1..40}; do
-            if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
-              echo "✅ Web server ready"
+            if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
+              echo "✅ OpenCode WebUI ready"
               break
             fi
             sleep 2
           done
           
-          echo ""
-          echo "🔗 URL: $URL"
-          echo ""
-          echo "After login:"
-          echo "1. Settings -> Models"
-          echo "2. Click nine-router"
-          echo "3. Click Fetch available models"
-          echo ""
-          
+          # تابع sync برای ذخیره فایل‌ها در ریپازیتوری
           sync_to_repo() {
+            cd workspace
             if [ -n "$(git status --porcelain)" ]; then
               git add -A
               git commit -m "Auto-save: $(date '+%Y-%m-%d %H:%M:%S') [skip ci]" || true
               git push origin HEAD || true
             fi
+            cd ..
           }
           
+          # trap برای sync هنگام خروج
           trap sync_to_repo EXIT SIGINT SIGTERM
           
-          while kill -0 $HARNESS_PID 2>/dev/null; do
+          # نمایش لینک
+          echo ""
+          echo "=========================================="
+          echo "🔗 OpenCode WebUI URL: $TUNNEL_URL"
+          echo "=========================================="
+          echo ""
+          echo "📝 راهنما:"
+          echo "1. روی لینک بالا کلیک کن"
+          echo "2. از 9router یا DeepSeek استفاده کن"
+          echo "3. فایل‌ها به‌صورت خودکار در workspace ذخیره می‌شوند"
+          echo "4. هر 30 ثانیه فایل‌ها به ریپازیتوری sync می‌شوند"
+          echo ""
+          
+          # حلقه اصلی برای نگه داشتن سرور
+          while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
           done
+
+      - name: Final Sync
+        if: always()
+        run: |
+          cd workspace
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "Final sync: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            git push origin HEAD || true
+          fi
