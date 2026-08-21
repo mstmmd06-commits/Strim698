@@ -44,31 +44,42 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install Plugin Market
-        run: dsh plugin --profile web add dshmarket
-
-      - name: Fix BOM in profile files
+      - name: Clean profile and remove problematic plugins
         run: |
-          echo "Cleaning BOM from profile files..."
-          node -e "
-            const fs = require('fs');
-            const path = require('path');
-            const profileDir = path.join(process.env.HOME, '.dsh/profiles/web');
-            
-            function cleanBOM(filePath) {
-              if (fs.existsSync(filePath)) {
-                let content = fs.readFileSync(filePath, 'utf8');
-                if (content.charCodeAt(0) === 0xFEFF) {
-                  content = content.slice(1);
-                  fs.writeFileSync(filePath, content, 'utf8');
-                  console.log('BOM removed from:', filePath);
-                }
-              }
-            }
-            
-            cleanBOM(path.join(profileDir, 'package.json'));
-            cleanBOM(path.join(profileDir, 'cordis.patch.yml'));
-          "
+          echo "Cleaning profile directory..."
+          
+          # حذف کامل پروفایل قبلی
+          rm -rf "$HOME/.dsh/profiles/web"
+          mkdir -p "$HOME/.dsh/profiles/web"
+          
+          # ساخت package.json تمیز بدون BOM
+          cat > "$HOME/.dsh/profiles/web/package.json" << 'EOF'
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "dshmarket": "^1.16.0"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "dshmarket"
+      ]
+    }
+  }
+}
+EOF
+          
+          echo "✅ Profile cleaned - dsh-web-launcher removed"
+          echo "✅ package.json created without BOM"
+          cat "$HOME/.dsh/profiles/web/package.json"
+
+      - name: Install Plugin Market
+        run: |
+          cd "$HOME/.dsh/profiles/web"
+          pnpm install --no-frozen-lockfile
 
       - name: Configure 9Router Provider
         env:
@@ -86,10 +97,8 @@ jobs:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
-          # Start Cloudflare tunnel
           cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
           
-          # Wait for tunnel URL
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
@@ -100,21 +109,17 @@ jobs:
             sleep 2
           done
           
-          # Check if URL was found
           if [ -z "$URL" ]; then
             echo "ERROR: Failed to get Cloudflare URL"
             cat tunnel.log
             exit 1
           fi
           
-          # Extract hostname for trusted-host
           HOSTNAME=$(echo "$URL" | sed 's|^https://||')
           
-          # Start DeepSeek Harness web server
           dsh web --port 3080 --no-open --trusted-host "$HOSTNAME" > harness.log 2>&1 &
           HARNESS_PID=$!
           
-          # Wait for web server to be ready
           for i in {1..40}; do
             if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
               echo "Web server is ready"
@@ -123,7 +128,6 @@ jobs:
             sleep 2
           done
           
-          # Display final URL
           echo ""
           echo "============================================================"
           echo "ACCESS URL: $URL"
@@ -142,7 +146,6 @@ jobs:
           echo "4. Models from 9Router will be listed automatically"
           echo ""
           
-          # Auto backup function
           sync_to_repo() {
             if [ -n "$(git status --porcelain)" ]; then
               git add -A
@@ -151,10 +154,8 @@ jobs:
             fi
           }
           
-          # Save on exit
           trap sync_to_repo EXIT SIGINT SIGTERM
           
-          # Continuous backup every 30 seconds
           while kill -0 $HARNESS_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
