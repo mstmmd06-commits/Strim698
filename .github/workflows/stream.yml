@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Setup Git Identity (Added Back)
+      - name: Setup Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -92,15 +92,16 @@ jobs:
         run: |
           cd opencode_workspace
           
-          # اجرای OpenCode با nohup برای جلوگیری از بسته شدن ناگهانی
-          nohup opencode web --port 4096 --host 127.0.0.1 > ../opencode.log 2>&1 &
+          # اصلاح مهم: استفاده از --hostname به جای --host طبق مستندات خود OpenCode
+          opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
+          
           echo "✅ OpenCode PID: $OPENCODE_PID"
           
           SERVER_READY=false
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
-              echo "✅ OpenCode WebUI is ready"
+              echo "✅ OpenCode WebUI is ready and responding"
               SERVER_READY=true
               break
             fi
@@ -137,7 +138,6 @@ jobs:
             sync_to_repo
           done
           
-          # اگر حلقه شکست، یعنی پروسه مرده است. لاگ را نشان می‌دهیم:
           echo "⚠️ OpenCode process died unexpectedly. Last 50 lines of log:"
           tail -n 50 ../opencode.log
           exit 1
