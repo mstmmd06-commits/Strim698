@@ -47,3 +47,5 @@
 2026-08-21T10:48:05Z ERR Request failed error="stream 197 canceled by remote with error code 0" connIndex=0 dest=https://merchandise-epic-paying-context.trycloudflare.com/plugins/events event=0 ip=198.41.200.193 type=http
 2026-08-21T10:50:16Z ERR  error="stream 365 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
 2026-08-21T10:50:16Z ERR Request failed error="stream 365 canceled by remote with error code 0" connIndex=0 dest=https://merchandise-epic-paying-context.trycloudflare.com/plugins/events event=0 ip=198.41.200.193 type=http
+2026-08-21T10:52:27Z ERR  error="stream 369 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-21T10:52:27Z ERR Request failed error="stream 369 canceled by remote with error code 0" connIndex=0 dest=https://merchandise-epic-paying-context.trycloudflare.com/plugins/events event=0 ip=198.41.200.193 type=http
