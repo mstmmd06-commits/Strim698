@@ -57,14 +57,44 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           echo "=================================================="
+          echo "🚀 در حال بالا آوردن Cloudflare Tunnel..."
+          echo "=================================================="
+
+          # ابتدا کلادفلر را اجرا می‌کنیم تا URL تصادفی تولید شود.
+          # (فلگ http-host-header حذف شده تا هدر Host دقیقاً برابر با دامنه کلادفلر به dsh برسد)
+          cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
+          TUNNEL_PID=$!
+
+          # استخراج لینک تولید شده از لاگ
+          echo "⏳ در حال انتظار برای دریافت لینک موقت Cloudflare..."
+          URL=""
+          for i in {1..30}; do
+            URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
+            if [ -n "$URL" ]; then
+              echo "✅ لینک کلادفلر دریافت شد: $URL"
+              break
+            fi
+            sleep 2
+          done
+
+          if [ -z "$URL" ]; then
+            echo "❌ خطا در دریافت لینک کلادفلر. محتوای لاگ:"
+            cat tunnel.log
+            exit 1
+          fi
+
+          # استخراج دامنه بدون https:// برای استفاده در trusted-host
+          HOSTNAME=$(echo "$URL" | sed -e 's|^https://||')
+
+          echo "=================================================="
           echo "🚀 در حال بالا آوردن DeepSeek Harness WebUI..."
           echo "=================================================="
 
-          # اجرای وب سرور در پس‌زمینه
-          dsh web --port 3080 --no-open > harness.log 2>&1 &
+          # اجرای وب سرور در پس‌زمینه با افزودن فلگ --trusted-host جهت دور زدن کامل ارور 403
+          dsh web --port 3080 --no-open --trusted-host "$HOSTNAME" > harness.log 2>&1 &
           HARNESS_PID=$!
 
-          # تست سلامت پورت ۳۰۸۰
+          # تست سلامت پورت ۳۰۸۰ (منتظر می‌مانیم تا وب سرور بالا بیاید و کلادفلر به آن متصل شود)
           echo "⏳ در حال انتظار برای آماده‌سازی کامل وب..."
           for i in {1..40}; do
             if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
@@ -74,25 +104,13 @@ jobs:
             sleep 2
           done
 
-          # اجرای کلادفلر با هدر بازنویسی‌شده جهت رفع کامل ارور 403
-          cloudflared tunnel --url http://127.0.0.1:3080 --http-host-header "127.0.0.1:3080" > tunnel.log 2>&1 &
-          TUNNEL_PID=$!
-
-          # استخراج و نمایش لینک
-          sleep 6
-          for i in {1..15}; do
-            URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' tunnel.log | head -n 1)
-            if [ -n "$URL" ]; then
-              echo ""
-              echo "============================================================"
-              echo "🌐 لینک ورود بدون مشکل 403 و با بکاپ لحظه‌ای:"
-              echo "👉 $URL"
-              echo "============================================================"
-              echo ""
-              break
-            fi
-            sleep 2
-          done
+          # نمایش لینک نهایی
+          echo ""
+          echo "============================================================"
+          echo "🌐 لینک ورود بدون مشکل 403 و با بکاپ لحظه‌ای:"
+          echo "👉 $URL"
+          echo "============================================================"
+          echo ""
 
           # تابع هوشمند ذخیره تک‌تک جزئیات و فایل‌ها روی مخزن
           sync_to_repo() {
