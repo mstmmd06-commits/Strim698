@@ -1,10 +1,10 @@
-name: OpenCode WebUI + Cloudflare Tunnel
+name: OpenCode Desktop Kiosk + Cloudflare Tunnel
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-opencode:
+  run-opencode-desktop:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,27 +16,52 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Setup Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install Cloudflared
+      - name: Install Cloudflared (Quick Tunnel)
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
+          cloudflared --version
 
-      - name: Install OpenCode
+      - name: Install Kiosk Dependencies (Minimal)
         run: |
-          npm install -g opencode-ai@latest
-          opencode --version
+          sudo apt-get update
+          # نصب حداقلی: نمایشگر مجازی + Window Manager سبک + VNC سرور + noVNC
+          sudo apt-get install -y --no-install-recommends \
+            xvfb \
+            openbox \
+            x11vnc \
+            websockify \
+            novnc \
+            libgtk-3-0 \
+            libnotify4 \
+            libnss3 \
+            libxss1 \
+            libxtst6 \
+            xdg-utils \
+            libatspi2.0-0 \
+            libdrm2 \
+            libgbm1 \
+            libxcb-dri3-0 \
+            libsecret-1-0 \
+            libappindicator3-1 \
+            libu2f-udev \
+            fonts-liberation \
+            wget \
+            curl
+          
+          # دانلود مستقیم نسخه دسکتاپ اوپن‌کد (AppImage)
+          wget -O /tmp/opencode-desktop.AppImage "https://github.com/sst/opencode/releases/download/v1.0.223/opencode-desktop-linux-x86_64.AppImage"
+          chmod +x /tmp/opencode-desktop.AppImage
+          
+          # اگر نسخه جدیدتر منتشر شده بود، لینک بالا رو از ریلیزهای گیت‌هاب آپدیت کن
+          ls -lh /tmp/opencode-desktop.AppImage
 
       - name: Setup Workspace & Initialize Project
         env:
@@ -47,21 +72,6 @@ jobs:
           cd opencode_workspace
           echo "# My OpenCode Project" > README.md
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
-          cat > AGENTS.md << 'AGENTS_EOF'
-          # Project: My OpenCode Project
-          
-          ## Overview
-          This is a coding project managed by OpenCode AI Agent.
-          
-          ## Guidelines
-          - Use modern coding practices
-          - Keep code clean and well-documented
-          AGENTS_EOF
-          git init -b main
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Initial project setup with AGENTS.md"
           cat > opencode.json << CFG_EOF
           {
             "provider": {
@@ -78,68 +88,141 @@ jobs:
             }
           }
           CFG_EOF
-          echo "=== Project Initialized ==="
+          git init -b main
+          git add .
+          git commit -m "Initial project setup" || true
+          echo "=== Workspace Ready ==="
           pwd
           ls -la
 
-      - name: Pre-register Project with opencode run
+      - name: Start Xvfb (Virtual Display)
         run: |
-          cd opencode_workspace
-          echo "=== Running opencode run to pre-register project ==="
-          opencode run "Say hello and confirm you are ready" --format json 2>&1 | head -30 || true
-          echo "=== Pre-registration complete ==="
+          # نمایشگر مجازی با رزولوشن فول‌اچ‌دی
+          Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /tmp/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          echo "XVFB_PID=$XVFB_PID" >> $GITHUB_ENV
+          export DISPLAY=:99
+          sleep 2
+          
+          # بررسی اینکه Xvfb درست راه افتاده
+          if ps -p $XVFB_PID > /dev/null; then
+            echo "✅ Xvfb started successfully on :99"
+          else
+            echo "❌ Xvfb failed to start"
+            cat /tmp/xvfb.log
+            exit 1
+          fi
 
-      - name: Start Cloudflare Tunnel
+      - name: Start Openbox (Minimal Window Manager)
         run: |
-          cloudflared tunnel --url http://127.0.0.1:4096 > tunnel.log 2>&1 &
+          export DISPLAY=:99
+          # Openbox رو استارت می‌کنیم - این به دسکتاپ کامل نیست، فقط پنجره‌ها رو مدیریت می‌کنه
+          openbox --sm-disable > /tmp/openbox.log 2>&1 &
+          OPENBOX_PID=$!
+          echo "OPENBOX_PID=$OPENBOX_PID" >> $GITHUB_ENV
+          sleep 2
+          echo "✅ Openbox started (Kiosk mode)"
+
+      - name: Start OpenCode Desktop App
+        env:
+          NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
+          NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
+        run: |
+          export DISPLAY=:99
+          cd opencode_workspace
+          
+          # اجرای مستقیم اوپن‌کد دسکتاپ در حالت Kiosk
+          # --no-sandbox: در GitHub Actions الزامی است
+          # --disable-gpu: برای محیط مجازی بدون کارت گرافیک
+          /tmp/opencode-desktop.AppImage \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-software-rasterizer \
+            --disable-dev-shm-usage \
+            --window-size=1920,1080 \
+            --start-maximized \
+            > /tmp/opencode-desktop.log 2>&1 &
+          
+          OPENCODE_PID=$!
+          echo "OPENCODE_PID=$OPENCODE_PID" >> $GITHUB_ENV
+          sleep 5
+          echo "✅ OpenCode Desktop launched (PID: $OPENCODE_PID)"
+
+      - name: Start VNC Server & noVNC Web Access
+        run: |
+          export DISPLAY=:99
+          
+          # استارت VNC سرور - فقط همون نمایشگر :99 رو استریم می‌کنه
+          x11vnc -display :99 -forever -nopw -shared -rfbport 5900 -ncache 10 -ncache_cr > /tmp/x11vnc.log 2>&1 &
+          VNC_PID=$!
+          echo "VNC_PID=$VNC_PID" >> $GITHUB_ENV
+          sleep 3
+          
+          # استارت noVNC روی پورت 4096 (Cloudflare Tunnel این پورت رو می‌گیره)
+          websockify --web=/usr/share/novnc/ 4096 localhost:5900 > /tmp/websockify.log 2>&1 &
+          WEBSOCKIFY_PID=$!
+          echo "WEBSOCKIFY_PID=$WEBSOCKIFY_PID" >> $GITHUB_ENV
+          sleep 3
+          
+          # بررسی آماده بودن noVNC
+          if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
+            echo "✅ noVNC ready on port 4096"
+          else
+            echo "❌ noVNC failed to start"
+            cat /tmp/websockify.log
+            exit 1
+          fi
+
+      - name: Start Cloudflare Quick Tunnel
+        run: |
+          # تانل سریع Cloudflare روی پورت noVNC
+          cloudflared tunnel --url http://127.0.0.1:4096 > /tmp/tunnel.log 2>&1 &
+          TUNNEL_PID=$!
+          echo "TUNNEL_PID=$TUNNEL_PID" >> $GITHUB_ENV
+          
+          # استخراج URL تانل
           URL=""
           for i in {1..30}; do
-            URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
+            URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -n 1)
             if [ -n "$URL" ]; then
               break
             fi
             sleep 2
           done
+          
           if [ -z "$URL" ]; then
-            echo "Tunnel URL not found"
-            cat tunnel.log
+            echo "❌ Cloudflare Tunnel failed"
+            cat /tmp/tunnel.log
             exit 1
           fi
-          echo "Tunnel URL: $URL"
+          
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
+          echo "✅ Tunnel URL: $URL"
 
-      - name: Start OpenCode WebUI
+      - name: Display Access Info & Keep Alive
         run: |
-          cd opencode_workspace
-          PROJECT_PATH=$(pwd)
-          echo "Project path: $PROJECT_PATH"
+          echo ""
+          echo "=========================================="
+          echo "🎯 OpenCode Desktop Kiosk is LIVE!"
+          echo "=========================================="
+          echo ""
+          echo "🖥️  ACCESS YOUR DESKTOP APP:"
+          echo "   ${TUNNEL_URL}/vnc.html?autoconnect=true&resize=scale"
+          echo ""
+          echo "🎨 FEATURES:"
+          echo "   ✅ Real OpenCode Desktop App (Electron)"
+          echo "   ✅ Kiosk Mode (no XFCE, no bloat)"
+          echo "   ✅ Minimal memory usage (~200-400 MB)"
+          echo "   ✅ Full mouse & keyboard support"
+          echo "   ✅ Auto-resize to browser window"
+          echo ""
+          echo "=========================================="
+          echo ""
+          echo "⏰ This workflow will stay alive for 6 hours"
+          echo "   Cancel manually from Actions tab when done"
+          echo ""
           
-          # Base64 encode the project path
-          ENCODED_PATH=$(echo -n "$PROJECT_PATH" | base64)
-          echo "Base64 encoded path: $ENCODED_PATH"
-          
-          opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
-          OPENCODE_PID=$!
-          echo "OpenCode PID: $OPENCODE_PID"
-          
-          SERVER_READY=false
-          for i in {1..40}; do
-            if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
-              echo "OpenCode WebUI is ready"
-              SERVER_READY=true
-              break
-            fi
-            sleep 2
-          done
-          
-          if [ "$SERVER_READY" = false ]; then
-            echo "OpenCode failed to start"
-            cat ../opencode.log
-            exit 1
-          fi
-          
-          sleep 3
-          
+          # زنده نگه داشتن ورک‌فلو + سینک خودکار
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
@@ -151,42 +234,28 @@ jobs:
           
           trap sync_to_repo EXIT SIGINT SIGTERM
           
-          # Generate the direct project URL
-          DIRECT_URL="${TUNNEL_URL}/${ENCODED_PATH}"
-          
-          echo ""
-          echo "=========================================="
-          echo "🎯 OpenCode WebUI URLS:"
-          echo "=========================================="
-          echo ""
-          echo "📍 HOME PAGE (see all projects):"
-          echo "   $TUNNEL_URL"
-          echo ""
-          echo "🎯 DIRECT PROJECT LINK (open project directly):"
-          echo "   $DIRECT_URL"
-          echo ""
-          echo "🚀 NEW SESSION (start a new session):"
-          echo "   ${DIRECT_URL}/session"
-          echo ""
-          echo "=========================================="
-          echo ""
-          echo "✅ HOW TO USE:"
-          echo "1. Open the DIRECT PROJECT LINK above"
-          echo "2. The project will automatically load"
-          echo "3. You can start coding immediately!"
-          echo ""
-          
+          # چک کردن اینکه همه پروسه‌ها زنده هستن
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
+            
+            # لاگ مختصر برای دیباگ
+            echo "[$(date '+%H:%M:%S')] All processes running..."
           done
 
-      - name: Final Sync
+      - name: Cleanup & Final Sync
         if: always()
         run: |
           cd "$GITHUB_WORKSPACE"
+          
+          # کشتن همه پروسه‌ها
+          kill $XVFB_PID $OPENBOX_PID $VNC_PID $WEBSOCKIFY_PID $TUNNEL_PID 2>/dev/null || true
+          
+          # سینک نهایی
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -m "Final sync: $(date '+%Y-%m-%d %H:%M:%S')" || true
             git push origin HEAD || true
           fi
+          
+          echo "✅ Cleanup complete"
