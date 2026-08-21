@@ -1,6 +1,26 @@
+- name: Create settings.yaml
+  env:
+    NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
+  run: |
+    mkdir -p "$HOME/.dsh/profiles/web"
+
+    cat > "$HOME/.dsh/settings.yaml" << 'EOF'
 llm-pi-ai:
   providers:
     nine-router:
       apiKeyEnv: NINE_ROUTER_API_KEY
       api: openai-completions
       baseURL: https://9router-production-d138.up.railway.app/v1
+      models:
+        - id: hermes-fast
+
+agent-default-model:
+  provider: nine-router
+  model: hermes-fast
+EOF
+
+    cp "$HOME/.dsh/settings.yaml" "$HOME/.dsh/profiles/web/settings.yaml"
+    chmod 700 "$HOME/.dsh"
+
+    echo "=== settings.yaml ==="
+    cat "$HOME/.dsh/settings.yaml"
