@@ -47,6 +47,29 @@ jobs:
       - name: Install Plugin Market
         run: dsh plugin --profile web add dshmarket
 
+      - name: Fix BOM in profile files
+        run: |
+          echo "Cleaning BOM from profile files..."
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const profileDir = path.join(process.env.HOME, '.dsh/profiles/web');
+            
+            function cleanBOM(filePath) {
+              if (fs.existsSync(filePath)) {
+                let content = fs.readFileSync(filePath, 'utf8');
+                if (content.charCodeAt(0) === 0xFEFF) {
+                  content = content.slice(1);
+                  fs.writeFileSync(filePath, content, 'utf8');
+                  console.log('BOM removed from:', filePath);
+                }
+              }
+            }
+            
+            cleanBOM(path.join(profileDir, 'package.json'));
+            cleanBOM(path.join(profileDir, 'cordis.patch.yml'));
+          "
+
       - name: Configure 9Router Provider
         env:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
@@ -54,7 +77,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.dsh"
           printf 'llm-pi-ai:\n  providers:\n    nine-router:\n      apiKeyEnv: NINE_ROUTER_API_KEY\n      api: openai-completions\n      baseURL: %s\n' "$NINE_ROUTER_BASE_URL" > "$HOME/.dsh/settings.yaml"
-          echo "settings.yaml created:"
+          echo "=== settings.yaml created ==="
           cat "$HOME/.dsh/settings.yaml"
 
       - name: Start DeepSeek Harness and Cloudflare Tunnel
@@ -63,48 +86,63 @@ jobs:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
+          # Start Cloudflare tunnel
           cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
           
+          # Wait for tunnel URL
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
             if [ -n "$URL" ]; then
-              echo "Tunnel URL: $URL"
+              echo "Tunnel URL found: $URL"
               break
             fi
             sleep 2
           done
           
+          # Check if URL was found
           if [ -z "$URL" ]; then
-            echo "Failed to get Cloudflare URL"
+            echo "ERROR: Failed to get Cloudflare URL"
             cat tunnel.log
             exit 1
           fi
           
+          # Extract hostname for trusted-host
           HOSTNAME=$(echo "$URL" | sed 's|^https://||')
           
+          # Start DeepSeek Harness web server
           dsh web --port 3080 --no-open --trusted-host "$HOSTNAME" > harness.log 2>&1 &
           HARNESS_PID=$!
           
+          # Wait for web server to be ready
           for i in {1..40}; do
             if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
-              echo "Web server ready"
+              echo "Web server is ready"
               break
             fi
             sleep 2
           done
           
+          # Display final URL
           echo ""
-          echo "============================================"
-          echo "URL: $URL"
-          echo "============================================"
+          echo "============================================================"
+          echo "ACCESS URL: $URL"
+          echo "============================================================"
           echo ""
-          echo "After login:"
+          echo "INSTALLED PLUGINS:"
+          echo "  - dsh-market (plugin marketplace)"
+          echo ""
+          echo "CONFIGURED PROVIDER:"
+          echo "  - nine-router (9Router gateway)"
+          echo ""
+          echo "AFTER LOGIN:"
           echo "1. Go to Settings -> Models"
           echo "2. Click on 'nine-router'"
           echo "3. Click 'Fetch available models'"
+          echo "4. Models from 9Router will be listed automatically"
           echo ""
           
+          # Auto backup function
           sync_to_repo() {
             if [ -n "$(git status --porcelain)" ]; then
               git add -A
@@ -113,8 +151,10 @@ jobs:
             fi
           }
           
+          # Save on exit
           trap sync_to_repo EXIT SIGINT SIGTERM
           
+          # Continuous backup every 30 seconds
           while kill -0 $HARNESS_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
