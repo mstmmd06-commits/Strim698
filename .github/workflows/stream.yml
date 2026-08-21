@@ -7,7 +7,7 @@ jobs:
   run-harness:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # مجوز کامل برای خواندن و نوشتن روی مخزن
+      contents: write
 
     steps:
       # ۱. دریافت کامل مخزن
@@ -39,29 +39,44 @@ jobs:
       # ۵. آماده‌سازی پوشه‌های ذخیره‌سازی داده‌ها و تنظیم گیت
       - name: Setup Persistent Storage & Git
         run: |
-          # ساخت پوشه‌های ذخیره تاریخچه، تنظیمات و چت‌های دیپ‌سیک داخل مخزن
           mkdir -p .dsh_data .deepseek_data workspace
           
-          # اتصال داده‌های سیستمی دیپ‌سیک به داخل مخزن (Symlink)
           ln -sfn "$(pwd)/.dsh_data" "$HOME/.dsh"
           ln -sfn "$(pwd)/.deepseek_data" "$HOME/.deepseek"
 
-          # تنظیم مشخصات کامیت‌کننده گیت
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # ۶. راه‌اندازی WebUI، حل خطای 403، بکاپ خودکار سریع
+      # ۶. نصب پلاگین‌های واجب (بازارچه + کشف پلاگین)
+      - name: Install Essential Plugins
+        run: |
+          echo "=================================================="
+          echo "🔌 در حال نصب پلاگین‌های واجب..."
+          echo "=================================================="
+          
+          # بازارچه پلاگین داخل هارنس
+          echo "📦 نصب dsh-market (بازارچه پلاگین)..."
+          dsh plugin --profile web add github:dsh-market/dsh-market || echo "⚠️ dsh-market نصب نشد، ادامه می‌دهیم..."
+          
+          # کشف پلاگین از محیط بیرون
+          echo "🔍 نصب dsh-find-plugin (کشف پلاگین)..."
+          dsh plugin --profile web add github:dsh-find-plugin/dsh-find-plugin || echo "⚠️ dsh-find-plugin نصب نشد، ادامه می‌دهیم..."
+          
+          echo "✅ نصب پلاگین‌های واجب کامل شد!"
+
+      # ۷. راه‌اندازی WebUI با 9Router، حل خطای 403، بکاپ خودکار
       - name: Start DeepSeek Harness & Cloudflare Tunnel
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
           echo "=================================================="
           echo "🚀 در حال بالا آوردن Cloudflare Tunnel..."
           echo "=================================================="
 
-          # ابتدا کلادفلر را اجرا می‌کنیم تا URL تصادفی تولید شود.
-          # (فلگ http-host-header حذف شده تا هدر Host دقیقاً برابر با دامنه کلادفلر به dsh برسد)
+          # ابتدا کلادفلر را اجرا می‌کنیم تا URL تصادفی تولید شود
           cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
           TUNNEL_PID=$!
 
@@ -89,12 +104,14 @@ jobs:
           echo "=================================================="
           echo "🚀 در حال بالا آوردن DeepSeek Harness WebUI..."
           echo "=================================================="
+          echo "🔧 9Router به عنوان OpenAI-compatible provider تنظیم شد"
+          echo "=================================================="
 
-          # اجرای وب سرور در پس‌زمینه با افزودن فلگ --trusted-host جهت دور زدن کامل ارور 403
+          # اجرای وب سرور با trusted-host جهت دور زدن خطای 403
           dsh web --port 3080 --no-open --trusted-host "$HOSTNAME" > harness.log 2>&1 &
           HARNESS_PID=$!
 
-          # تست سلامت پورت ۳۰۸۰ (منتظر می‌مانیم تا وب سرور بالا بیاید و کلادفلر به آن متصل شود)
+          # تست سلامت پورت ۳۰۸۰
           echo "⏳ در حال انتظار برای آماده‌سازی کامل وب..."
           for i in {1..40}; do
             if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
@@ -111,8 +128,12 @@ jobs:
           echo "👉 $URL"
           echo "============================================================"
           echo ""
+          echo "✅ پلاگین‌های نصب شده:"
+          echo "   - dsh-market (بازارچه پلاگین)"
+          echo "   - dsh-find-plugin (کشف پلاگین)"
+          echo ""
 
-          # تابع هوشمند ذخیره تک‌تک جزئیات و فایل‌ها روی مخزن
+          # تابع ذخیره‌سازی روی مخزن
           sync_to_repo() {
             if [ -n "$(git status --porcelain)" ]; then
               echo "📦 تغییرات جدید شناسایی شد؛ در حال ذخیره و Push روی مخزن..."
@@ -123,10 +144,10 @@ jobs:
             fi
           }
 
-          # ذخیره لحظه خروج یا متوقف شدن ورک‌فلو
+          # ذخیره لحظه خروج
           trap sync_to_repo EXIT SIGINT SIGTERM
 
-          # پایش مستمر و ذخیره‌سازی هر ۳۰ ثانیه یک‌بار
+          # پایش مستمر و ذخیره‌سازی هر ۳۰ ثانیه
           echo "⚡ رانر فعال است و هر ۳۰ ثانیه تمام اطلاعات روی مخزن همگام می‌شوند..."
           while kill -0 $HARNESS_PID 2>/dev/null; do
             sleep 30
