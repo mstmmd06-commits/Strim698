@@ -42,13 +42,11 @@ jobs:
         env:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           mkdir -p opencode_workspace
           cd opencode_workspace
           
           echo "# My OpenCode Project" > README.md
-          
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
           
           {
@@ -60,11 +58,6 @@ jobs:
             echo "## Guidelines"
             echo "- Use modern coding practices"
             echo "- Keep code clean and well-documented"
-            echo "- Test before committing"
-            echo ""
-            echo "## Stack"
-            echo "- Language: To be determined"
-            echo "- Framework: To be determined"
           } > AGENTS.md
           
           git init -b main
@@ -91,11 +84,8 @@ jobs:
           } > opencode.json
           
           echo "=== Project Initialized ==="
+          pwd
           ls -la
-          echo "=== AGENTS.md ==="
-          cat AGENTS.md
-          echo "=== opencode.json ==="
-          cat opencode.json
 
       - name: Start Cloudflare Tunnel
         run: |
@@ -123,9 +113,11 @@ jobs:
         env:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           cd opencode_workspace
+          
+          PROJECT_PATH=$(pwd)
+          echo "Project path: $PROJECT_PATH"
           
           opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
@@ -148,6 +140,27 @@ jobs:
             exit 1
           fi
           
+          echo ""
+          echo "=== Registering project via OpenCode API ==="
+          sleep 3
+          
+          REGISTER_RESPONSE=$(curl -s -X POST http://127.0.0.1:4096/projects \
+            -H "Content-Type: application/json" \
+            -d "{\"path\": \"$PROJECT_PATH\"}" \
+            -w "\n%{http_code}")
+          
+          HTTP_CODE=$(echo "$REGISTER_RESPONSE" | tail -n1)
+          BODY=$(echo "$REGISTER_RESPONSE" | head -n -1)
+          
+          echo "API Response: HTTP $HTTP_CODE"
+          echo "Body: $BODY"
+          
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "Project successfully registered!"
+          else
+            echo "Warning: Project registration may have failed, but continuing..."
+          fi
+          
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
@@ -160,7 +173,12 @@ jobs:
           trap sync_to_repo EXIT SIGINT SIGTERM
           
           echo ""
+          echo "=========================================="
           echo "OpenCode WebUI URL: $TUNNEL_URL"
+          echo "=========================================="
+          echo ""
+          echo "The project should now appear in the sidebar!"
+          echo "If not, try refreshing the page."
           echo ""
           
           while kill -0 $OPENCODE_PID 2>/dev/null; do
