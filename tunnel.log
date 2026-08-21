@@ -64,3 +64,5 @@
 2026-08-21T18:21:41Z ERR Request failed error="stream 1 canceled by remote with error code 0" connIndex=0 dest=https://devel-projected-fighter-lancaster.trycloudflare.com/plugins/events event=0 ip=198.41.192.57 type=http
 2026-08-21T18:23:52Z ERR  error="stream 5 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
 2026-08-21T18:23:52Z ERR Request failed error="stream 5 canceled by remote with error code 0" connIndex=0 dest=https://devel-projected-fighter-lancaster.trycloudflare.com/plugins/events event=0 ip=198.41.192.57 type=http
+2026-08-21T18:26:03Z ERR  error="stream 9 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-21T18:26:03Z ERR Request failed error="stream 9 canceled by remote with error code 0" connIndex=0 dest=https://devel-projected-fighter-lancaster.trycloudflare.com/plugins/events event=0 ip=198.41.192.57 type=http
