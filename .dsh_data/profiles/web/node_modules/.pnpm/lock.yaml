@@ -10,7 +10,7 @@ importers:
     dependencies:
       dshmarket:
         specifier: ^1.16.0
-        version: 1.16.1(@deepseek-ai/cordis@4.0.1)
+        version: 1.16.2(@deepseek-ai/cordis@4.0.1)
 
 packages:
 
@@ -35,8 +35,8 @@ packages:
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
-  dshmarket@1.16.1:
-    resolution: {integrity: sha512-9HBl73u80cfs+KzQV2WKcdiLihV3Ji05BujI0bHuFnouciS6Aa0TAKiZfeNhaZ7gGRCTekp9Ci6MY1yDnw5+HQ==}
+  dshmarket@1.16.2:
+    resolution: {integrity: sha512-t/bYOZJ33UBWt7yPRf6jGh7wUbdXxYEQQZrjRlFU7DVSjbhf2mX6aNzEzDMk2B0fC40GuFVXNZ/cE6Da2ZFaag==}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
       '@deepseek-ai/dsh-settings': ^0.1.0-rc.7
@@ -65,7 +65,7 @@ snapshots:
 
   argparse@2.0.1: {}
 
-  dshmarket@1.16.1(@deepseek-ai/cordis@4.0.1):
+  dshmarket@1.16.2(@deepseek-ai/cordis@4.0.1):
     dependencies:
       '@deepseek-ai/cordis': 4.0.1
       js-yaml: 4.3.1
