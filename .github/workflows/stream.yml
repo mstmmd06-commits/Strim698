@@ -32,21 +32,16 @@ jobs:
           npm install -g opencode-ai@latest
           opencode --version
 
-      - name: Setup Workspace
-        run: |
-          mkdir -p workspace .opencode_data
-          cd workspace
-          git init
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Create OpenCode Config
+      - name: Setup Workspace & Config
         env:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          cat > workspace/opencode.json << EOF
+          # ساخت پوشه پروژه در ریشه ریپازیتوری اصلی (بدون git init اضافه)
+          mkdir -p opencode_workspace
+          
+          cat > opencode_workspace/opencode.json << EOF
           {
             "provider": {
               "name": "nine-router",
@@ -63,8 +58,8 @@ jobs:
           }
           EOF
           
-          echo "=== OpenCode Config ==="
-          cat workspace/opencode.json
+          echo "=== OpenCode Config Created ==="
+          cat opencode_workspace/opencode.json
 
       - name: Start Cloudflare Tunnel
         run: |
@@ -94,7 +89,8 @@ jobs:
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          cd workspace
+          # رفتن به پوشه ورک‌اسپیس برای اجرای سرور
+          cd opencode_workspace
           
           # اجرای OpenCode WebUI در پس‌زمینه
           opencode web --port 4096 --host 127.0.0.1 > ../opencode.log 2>&1 &
@@ -105,27 +101,26 @@ jobs:
           # انتظار برای آماده شدن سرور
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
-              echo "✅ OpenCode WebUI ready"
+              echo "✅ OpenCode WebUI is ready"
               break
             fi
             sleep 2
           done
           
-          # تابع sync برای ذخیره فایل‌ها در ریپازیتوری
+          # تابع sync با استفاده از مسیر مطلق برای جلوگیری از خطای cd
           sync_to_repo() {
-            cd workspace
+            # بازگشت به ریشه اصلی ریپازیتوری که گیت در آن تنظیم شده است
+            cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
               git add -A
               git commit -m "Auto-save: $(date '+%Y-%m-%d %H:%M:%S') [skip ci]" || true
               git push origin HEAD || true
             fi
-            cd ..
           }
           
-          # trap برای sync هنگام خروج
+          # ثبت تابع برای اجرای خودکار هنگام توقف
           trap sync_to_repo EXIT SIGINT SIGTERM
           
-          # نمایش لینک
           echo ""
           echo "=========================================="
           echo "🔗 OpenCode WebUI URL: $TUNNEL_URL"
@@ -133,12 +128,11 @@ jobs:
           echo ""
           echo "📝 راهنما:"
           echo "1. روی لینک بالا کلیک کن"
-          echo "2. از 9router یا DeepSeek استفاده کن"
-          echo "3. فایل‌ها به‌صورت خودکار در workspace ذخیره می‌شوند"
-          echo "4. هر 30 ثانیه فایل‌ها به ریپازیتوری sync می‌شوند"
+          echo "2. فایل‌ها در پوشه 'opencode_workspace' ذخیره می‌شوند"
+          echo "3. هر 30 ثانیه به‌صورت خودکار به گیت‌هاب Push می‌شوند"
           echo ""
           
-          # حلقه اصلی برای نگه داشتن سرور
+          # حلقه اصلی برای زنده نگه داشتن ورک‌فلو
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
@@ -147,7 +141,7 @@ jobs:
       - name: Final Sync
         if: always()
         run: |
-          cd workspace
+          cd "$GITHUB_WORKSPACE"
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -m "Final sync: $(date '+%Y-%m-%d %H:%M:%S')" || true
