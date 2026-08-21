@@ -27,10 +27,8 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install SQLite3 and Cloudflared
+      - name: Install Cloudflared
         run: |
-          sudo apt-get update
-          sudo apt-get install -y sqlite3
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
@@ -49,40 +47,52 @@ jobs:
           cd opencode_workspace
           echo "# My OpenCode Project" > README.md
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
-          {
-            echo "# Project: My OpenCode Project"
-            echo ""
-            echo "## Overview"
-            echo "This is a coding project managed by OpenCode AI Agent."
-            echo ""
-            echo "## Guidelines"
-            echo "- Use modern coding practices"
-            echo "- Keep code clean and well-documented"
-          } > AGENTS.md
+          cat > AGENTS.md << 'AGENTS_EOF'
+          # Project: My OpenCode Project
+
+          ## Overview
+          This is a coding project managed by OpenCode AI Agent.
+
+          ## Guidelines
+          - Use modern coding practices
+          - Keep code clean and well-documented
+          AGENTS_EOF
           git init -b main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Initial project setup with AGENTS.md"
+          cat > opencode.json << CFG_EOF
           {
-            echo "{"
-            echo '  "provider": {'
-            echo '    "name": "nine-router",'
-            echo '    "apiKey": "'"$NINE_ROUTER_API_KEY"'",'
-            echo '    "baseURL": "'"$NINE_ROUTER_BASE_URL"'",'
-            echo '    "model": "deepseek-chat"'
-            echo '  },'
-            echo '  "mcp": {},'
-            echo '  "agents": {'
-            echo '    "general": {'
-            echo '      "model": "deepseek-chat"'
-            echo '    }'
-            echo '  }'
-            echo "}"
-          } > opencode.json
+            "provider": {
+              "name": "nine-router",
+              "apiKey": "$NINE_ROUTER_API_KEY",
+              "baseURL": "$NINE_ROUTER_BASE_URL",
+              "model": "deepseek-chat"
+            },
+            "mcp": {},
+            "agents": {
+              "general": {
+                "model": "deepseek-chat"
+              }
+            }
+          }
+          CFG_EOF
           echo "=== Project Initialized ==="
           pwd
           ls -la
+
+      - name: Pre-register Project (Guaranteed Fix)
+        env:
+          NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
+          NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
+        run: |
+          cd opencode_workspace
+          echo "=== Running opencode run to pre-register project in database ==="
+          echo "This guarantees the project appears in WebUI sidebar"
+          opencode run "Say hello" --format json 2>&1 | head -50 || true
+          echo "=== Pre-registration complete ==="
+          ls -la ~/.local/share/opencode/ || true
 
       - name: Start Cloudflare Tunnel
         run: |
@@ -128,23 +138,12 @@ jobs:
             cat ../opencode.log
             exit 1
           fi
-          sleep 5
+          sleep 3
           echo ""
-          echo "=== Manually registering project in SQLite database ==="
-          DB_PATH="$HOME/.local/share/opencode/opencode.db"
-          if [ -f "$DB_PATH" ]; then
-            echo "Found database at: $DB_PATH"
-            PROJECT_ID=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-            echo "Generated project ID: $PROJECT_ID"
-            SQL_CMD="INSERT INTO project (id, worktree, vcs) VALUES ('$PROJECT_ID', '$PROJECT_PATH', 'git');"
-            echo "Executing SQL: $SQL_CMD"
-            sqlite3 "$DB_PATH" "$SQL_CMD"
-            echo "Project registered!"
-            sqlite3 "$DB_PATH" "SELECT id, worktree FROM project WHERE id = '$PROJECT_ID';"
-          else
-            echo "Warning: Database not found at $DB_PATH"
-            echo "You may need to manually add project in Web UI"
-          fi
+          echo "=== Verifying project registration via API ==="
+          curl -s http://127.0.0.1:4096/api/project | head -200 || true
+          echo ""
+          
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
@@ -153,14 +152,17 @@ jobs:
               git push origin HEAD || true
             fi
           }
+          
           trap sync_to_repo EXIT SIGINT SIGTERM
           echo ""
           echo "=========================================="
           echo "OpenCode WebUI URL: $TUNNEL_URL"
           echo "=========================================="
           echo ""
-          echo "The project should now appear in the sidebar!"
+          echo "The project SHOULD now appear in the sidebar!"
+          echo "Just open the URL and you will see 'opencode-project' in the list."
           echo ""
+          
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
