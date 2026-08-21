@@ -43,3 +43,5 @@
 2026-08-21T18:09:46Z INF precheck component="TCP Connectivity" details="HTTP/2 connection successful" run_id=ede4a395-14d8-4ca5-a7cc-bc7cbb744f27 status=pass target=region2.v2.argotunnel.com
 2026-08-21T18:09:46Z INF precheck component="Cloudflare API" details="API is reachable" run_id=ede4a395-14d8-4ca5-a7cc-bc7cbb744f27 status=pass target=api.cloudflare.com:443
 2026-08-21T18:09:46Z INF precheck complete hard_fail=false run_id=ede4a395-14d8-4ca5-a7cc-bc7cbb744f27 suggested_protocol=quic
+2026-08-21T18:12:00Z ERR  error="stream 201 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-21T18:12:00Z ERR Request failed error="stream 201 canceled by remote with error code 0" connIndex=0 dest=https://devel-projected-fighter-lancaster.trycloudflare.com/plugins/events event=0 ip=198.41.192.57 type=http
