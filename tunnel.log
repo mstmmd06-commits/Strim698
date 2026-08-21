@@ -45,3 +45,5 @@
 2026-08-21T17:16:56Z INF precheck complete hard_fail=false run_id=78e3ef4c-1aa4-4832-869a-7c42d90ca4ba suggested_protocol=quic
 2026-08-21T17:19:30Z ERR  error="stream 201 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
 2026-08-21T17:19:30Z ERR Request failed error="stream 201 canceled by remote with error code 0" connIndex=0 dest=https://real-regard-defendant-taste.trycloudflare.com/plugins/events event=0 ip=198.41.192.77 type=http
+2026-08-21T17:21:41Z ERR  error="stream 301 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-21T17:21:41Z ERR Request failed error="stream 301 canceled by remote with error code 0" connIndex=0 dest=https://real-regard-defendant-taste.trycloudflare.com/plugins/events event=0 ip=198.41.192.77 type=http
