@@ -21,6 +21,12 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Git Identity (Added Back)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Install Cloudflared
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
@@ -38,7 +44,6 @@ jobs:
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          # ساخت پوشه پروژه در ریشه ریپازیتوری اصلی (بدون git init اضافه)
           mkdir -p opencode_workspace
           
           cat > opencode_workspace/opencode.json << EOF
@@ -47,12 +52,12 @@ jobs:
               "name": "nine-router",
               "apiKey": "$NINE_ROUTER_API_KEY",
               "baseURL": "$NINE_ROUTER_BASE_URL",
-              "model": "deepseek-v3"
+              "model": "deepseek-chat"
             },
             "mcp": {},
             "agents": {
               "general": {
-                "model": "deepseek-v3"
+                "model": "deepseek-chat"
               }
             }
           }
@@ -68,16 +73,12 @@ jobs:
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
-            if [ -n "$URL" ]; then
-              break
-            fi
+            if [ -n "$URL" ]; then break; fi
             sleep 2
           done
           
           if [ -z "$URL" ]; then
-            echo "❌ Tunnel URL not found. Logs:"
-            cat tunnel.log
-            exit 1
+            echo "❌ Tunnel URL not found. Logs:"; cat tunnel.log; exit 1
           fi
           
           echo "✅ Tunnel URL: $URL"
@@ -89,27 +90,30 @@ jobs:
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          # رفتن به پوشه ورک‌اسپیس برای اجرای سرور
           cd opencode_workspace
           
-          # اجرای OpenCode WebUI در پس‌زمینه
-          opencode web --port 4096 --host 127.0.0.1 > ../opencode.log 2>&1 &
+          # اجرای OpenCode با nohup برای جلوگیری از بسته شدن ناگهانی
+          nohup opencode web --port 4096 --host 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
-          
           echo "✅ OpenCode PID: $OPENCODE_PID"
           
-          # انتظار برای آماده شدن سرور
+          SERVER_READY=false
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
               echo "✅ OpenCode WebUI is ready"
+              SERVER_READY=true
               break
             fi
             sleep 2
           done
+
+          if [ "$SERVER_READY" = false ]; then
+            echo "❌ OpenCode failed to start. Check logs:"
+            cat ../opencode.log
+            exit 1
+          fi
           
-          # تابع sync با استفاده از مسیر مطلق برای جلوگیری از خطای cd
           sync_to_repo() {
-            # بازگشت به ریشه اصلی ریپازیتوری که گیت در آن تنظیم شده است
             cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
               git add -A
@@ -118,25 +122,25 @@ jobs:
             fi
           }
           
-          # ثبت تابع برای اجرای خودکار هنگام توقف
           trap sync_to_repo EXIT SIGINT SIGTERM
           
           echo ""
           echo "=========================================="
           echo "🔗 OpenCode WebUI URL: $TUNNEL_URL"
           echo "=========================================="
-          echo ""
-          echo "📝 راهنما:"
-          echo "1. روی لینک بالا کلیک کن"
-          echo "2. فایل‌ها در پوشه 'opencode_workspace' ذخیره می‌شوند"
-          echo "3. هر 30 ثانیه به‌صورت خودکار به گیت‌هاب Push می‌شوند"
+          echo "فایل‌ها در پوشه 'opencode_workspace' ذخیره و هر 30 ثانیه سینک می‌شوند."
           echo ""
           
-          # حلقه اصلی برای زنده نگه داشتن ورک‌فلو
+          # حلقه زنده‌نگهدارنده
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
           done
+          
+          # اگر حلقه شکست، یعنی پروسه مرده است. لاگ را نشان می‌دهیم:
+          echo "⚠️ OpenCode process died unexpectedly. Last 50 lines of log:"
+          tail -n 50 ../opencode.log
+          exit 1
 
       - name: Final Sync
         if: always()
