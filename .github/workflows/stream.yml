@@ -38,7 +38,7 @@ jobs:
           npm install -g opencode-ai@latest
           opencode --version
 
-      - name: Setup Workspace & Initialize Project (FIX)
+      - name: Setup Workspace & Initialize Project
         env:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
@@ -47,54 +47,55 @@ jobs:
           mkdir -p opencode_workspace
           cd opencode_workspace
           
-          # ساخت فایل‌های پایه
           echo "# My OpenCode Project" > README.md
+          
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
           
-          # ساخت فایل AGENTS.md که به OpenCode می‌گوید این یک پروژه معتبر است
-          cat > AGENTS.md << 'EOF'
-# Project: My OpenCode Project
-
-## Overview
-This is a coding project managed by OpenCode AI Agent.
-
-## Guidelines
-- Use modern coding practices
-- Keep code clean and well-documented
-- Test before committing
-
-## Stack
-- Language: To be determined
-- Framework: To be determined
-EOF
+          {
+            echo "# Project: My OpenCode Project"
+            echo ""
+            echo "## Overview"
+            echo "This is a coding project managed by OpenCode AI Agent."
+            echo ""
+            echo "## Guidelines"
+            echo "- Use modern coding practices"
+            echo "- Keep code clean and well-documented"
+            echo "- Test before committing"
+            echo ""
+            echo "## Stack"
+            echo "- Language: To be determined"
+            echo "- Framework: To be determined"
+          } > AGENTS.md
           
-          # ساخت گیت داخلی
           git init -b main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Initial project setup with AGENTS.md"
           
-          # ساخت فایل کانفیگ OpenCode
-          cat > opencode.json << EOF
           {
-            "provider": {
-              "name": "nine-router",
-              "apiKey": "$NINE_ROUTER_API_KEY",
-              "baseURL": "$NINE_ROUTER_BASE_URL",
-              "model": "deepseek-chat"
-            },
-            "mcp": {},
-            "agents": {
-              "general": {
-                "model": "deepseek-chat"
-              }
-            }
-          }
-          EOF
+            echo "{"
+            echo '  "provider": {'
+            echo '    "name": "nine-router",'
+            echo "    \"apiKey\": \"$NINE_ROUTER_API_KEY\","
+            echo "    \"baseURL\": \"$NINE_ROUTER_BASE_URL\","
+            echo '    "model": "deepseek-chat"'
+            echo "  },"
+            echo '  "mcp": {},'
+            echo '  "agents": {'
+            echo '    "general": {'
+            echo '      "model": "deepseek-chat"'
+            echo "    }"
+            echo "  }"
+            echo "}"
+          } > opencode.json
           
-          echo "=== Project Initialized with AGENTS.md ==="
+          echo "=== Project Initialized ==="
           ls -la
+          echo "=== AGENTS.md ==="
+          cat AGENTS.md
+          echo "=== opencode.json ==="
+          cat opencode.json
 
       - name: Start Cloudflare Tunnel
         run: |
@@ -103,15 +104,19 @@ EOF
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
-            if [ -n "$URL" ]; then break; fi
+            if [ -n "$URL" ]; then
+              break
+            fi
             sleep 2
           done
           
           if [ -z "$URL" ]; then
-            echo "❌ Tunnel URL not found. Logs:"; cat tunnel.log; exit 1
+            echo "Tunnel URL not found"
+            cat tunnel.log
+            exit 1
           fi
           
-          echo "✅ Tunnel URL: $URL"
+          echo "Tunnel URL: $URL"
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
 
       - name: Start OpenCode WebUI
@@ -125,12 +130,12 @@ EOF
           opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
           
-          echo "✅ OpenCode PID: $OPENCODE_PID"
+          echo "OpenCode PID: $OPENCODE_PID"
           
           SERVER_READY=false
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
-              echo "✅ OpenCode WebUI is ready"
+              echo "OpenCode WebUI is ready"
               SERVER_READY=true
               break
             fi
@@ -138,7 +143,7 @@ EOF
           done
 
           if [ "$SERVER_READY" = false ]; then
-            echo "❌ OpenCode failed to start. Check logs:"
+            echo "OpenCode failed to start"
             cat ../opencode.log
             exit 1
           fi
@@ -155,23 +160,13 @@ EOF
           trap sync_to_repo EXIT SIGINT SIGTERM
           
           echo ""
-          echo "=========================================="
-          echo "🔗 OpenCode WebUI URL: $TUNNEL_URL"
-          echo "=========================================="
-          echo ""
-          echo "📝 راهنمای شروع:"
-          echo "1. اگر پروژه خودکار لود نشد، روی 'Add Project' یا آیکون پوشه کلیک کن"
-          echo "2. مسیر پوشه را وارد کن: /home/runner/work/Strim698/Strim698/opencode_workspace"
-          echo "3. روی 'Create Session' کلیک کن و شروع به چت کن!"
+          echo "OpenCode WebUI URL: $TUNNEL_URL"
           echo ""
           
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
           done
-          
-          echo "⚠️ OpenCode process stopped."
-          exit 0
 
       - name: Final Sync
         if: always()
