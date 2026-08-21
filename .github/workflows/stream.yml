@@ -23,20 +23,28 @@ jobs:
         with:
           node-version: 22
 
-      # ۳. دانلود و نصب کلاینت Cloudflared
+      # ۳. فعال‌سازی pnpm (ضروری برای نصب پلاگین‌ها)
+      - name: Enable pnpm
+        run: |
+          echo "🔧 در حال فعال‌سازی pnpm..."
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          echo "✅ pnpm فعال شد"
+
+      # ۴. دانلود و نصب کلاینت Cloudflared
       - name: Install Cloudflared
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
 
-      # ۴. نصب رسمی پکیج DeepSeek Harness
+      # ۵. نصب رسمی پکیج DeepSeek Harness
       - name: Install DeepSeek Harness
         run: |
           echo "📦 در حال نصب رسمی پکیج DeepSeek Harness..."
           npm install -g @deepseek-ai/dsh@latest
 
-      # ۵. آماده‌سازی پوشه‌های ذخیره‌سازی داده‌ها و تنظیم گیت
+      # ۶. آماده‌سازی پوشه‌های ذخیره‌سازی داده‌ها و تنظیم گیت
       - name: Setup Persistent Storage & Git
         run: |
           mkdir -p .dsh_data .deepseek_data workspace
@@ -48,7 +56,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # ۶. نصب پلاگین‌های واجب (بازارچه + کشف پلاگین)
+      # ۷. نصب پلاگین‌های واجب (بازارچه + کشف پلاگین)
       - name: Install Essential Plugins
         run: |
           echo "=================================================="
@@ -65,7 +73,7 @@ jobs:
           
           echo "✅ نصب پلاگین‌های واجب کامل شد!"
 
-      # ۷. راه‌اندازی WebUI با 9Router، حل خطای 403، بکاپ خودکار
+      # ۸. راه‌اندازی WebUI با 9Router، حل خطای 403، بکاپ خودکار
       - name: Start DeepSeek Harness & Cloudflare Tunnel
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
