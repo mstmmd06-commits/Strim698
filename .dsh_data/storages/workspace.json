@@ -15,9 +15,11 @@
       "04d12b10-f731-4443-897e-c4c0a1fd67ab": {
         "path": "/home/runner/work",
         "title": "work",
-        "sessionIds": [],
+        "sessionIds": [
+          "session-a8ad89fd-1833-4f3a-b237-e9fffdcf090f"
+        ],
         "createdAt": "2026-08-21T11:47:43.409Z",
-        "updatedAt": "2026-08-21T11:47:43.409Z"
+        "updatedAt": "2026-08-21T11:48:19.514Z"
       }
     }
   }
