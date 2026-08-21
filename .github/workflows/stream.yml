@@ -44,36 +44,15 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Clean profile and remove problematic plugins
+      - name: Clean profile and create package.json
         run: |
           echo "Cleaning profile directory..."
-          
-          # حذف کامل پروفایل قبلی
           rm -rf "$HOME/.dsh/profiles/web"
           mkdir -p "$HOME/.dsh/profiles/web"
           
-          # ساخت package.json تمیز بدون BOM
-          cat > "$HOME/.dsh/profiles/web/package.json" << 'EOF'
-{
-  "name": "dsh-profile-web",
-  "private": true,
-  "dependencies": {
-    "dshmarket": "^1.16.0"
-  },
-  "dsh": {
-    "profile": {
-      "bundles": [
-        "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app",
-        "dshmarket"
-      ]
-    }
-  }
-}
-EOF
+          printf '{\n  "name": "dsh-profile-web",\n  "private": true,\n  "dependencies": {\n    "dshmarket": "^1.16.0"\n  },\n  "dsh": {\n    "profile": {\n      "bundles": [\n        "@deepseek-ai/dsh-base",\n        "@deepseek-ai/dsh-web-app",\n        "dshmarket"\n      ]\n    }\n  }\n}\n' > "$HOME/.dsh/profiles/web/package.json"
           
-          echo "✅ Profile cleaned - dsh-web-launcher removed"
-          echo "✅ package.json created without BOM"
+          echo "✅ package.json created successfully"
           cat "$HOME/.dsh/profiles/web/package.json"
 
       - name: Install Plugin Market
