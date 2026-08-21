@@ -57,3 +57,5 @@
 2026-08-21T15:22:16Z ERR Request failed error="stream 661 canceled by remote with error code 0" connIndex=0 dest=https://trainer-unsigned-stable-brings.trycloudflare.com/plugins/events event=0 ip=198.41.200.33 type=http
 2026-08-21T15:24:27Z ERR  error="stream 665 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
 2026-08-21T15:24:27Z ERR Request failed error="stream 665 canceled by remote with error code 0" connIndex=0 dest=https://trainer-unsigned-stable-brings.trycloudflare.com/plugins/events event=0 ip=198.41.200.33 type=http
+2026-08-21T15:26:38Z ERR  error="stream 669 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-21T15:26:38Z ERR Request failed error="stream 669 canceled by remote with error code 0" connIndex=0 dest=https://trainer-unsigned-stable-brings.trycloudflare.com/plugins/events event=0 ip=198.41.200.33 type=http
