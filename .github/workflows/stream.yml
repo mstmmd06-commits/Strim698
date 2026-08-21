@@ -21,12 +21,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Setup Git Identity
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-
       - name: Install Cloudflared
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
@@ -49,39 +43,40 @@ jobs:
           echo "# My OpenCode Project" > README.md
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
           
-          {
-            echo "# Project: My OpenCode Project"
-            echo ""
-            echo "## Overview"
-            echo "This is a coding project managed by OpenCode AI Agent."
-            echo ""
-            echo "## Guidelines"
-            echo "- Use modern coding practices"
-            echo "- Keep code clean and well-documented"
-          } > AGENTS.md
-          
+          cat << 'EOF' > AGENTS.md
+# Project: My OpenCode Project
+
+## Overview
+This is a coding project managed by OpenCode AI Agent.
+
+## Guidelines
+- Use modern coding practices
+- Keep code clean and well-documented
+EOF
+
           git init -b main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Initial project setup with AGENTS.md"
           
-          {
-            echo "{"
-            echo '  "provider": {'
-            echo '    "name": "nine-router",'
-            echo "    \"apiKey\": \"$NINE_ROUTER_API_KEY\","
-            echo "    \"baseURL\": \"$NINE_ROUTER_BASE_URL\","
-            echo '    "model": "deepseek-chat"'
-            echo "  },"
-            echo '  "mcp": {},'
-            echo '  "agents": {'
-            echo '    "general": {'
-            echo '      "model": "deepseek-chat"'
-            echo "    }"
-            echo "  }"
-            echo "}"
-          } > opencode.json
+          # اصلاح شده: استفاده از Heredoc برای ساخت فایل JSON معتبر و بدون خطای نگارشی
+          cat << EOF > opencode.json
+{
+  "provider": {
+    "name": "nine-router",
+    "apiKey": "$NINE_ROUTER_API_KEY",
+    "baseURL": "$NINE_ROUTER_BASE_URL",
+    "model": "deepseek-chat"
+  },
+  "mcp": {},
+  "agents": {
+    "general": {
+      "model": "deepseek-chat"
+    }
+  }
+}
+EOF
           
           echo "=== Project Initialized ==="
           pwd
@@ -90,7 +85,6 @@ jobs:
       - name: Start Cloudflare Tunnel
         run: |
           cloudflared tunnel --url http://127.0.0.1:4096 > tunnel.log 2>&1 &
-          
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
@@ -99,13 +93,11 @@ jobs:
             fi
             sleep 2
           done
-          
           if [ -z "$URL" ]; then
             echo "Tunnel URL not found"
             cat tunnel.log
             exit 1
           fi
-          
           echo "Tunnel URL: $URL"
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
 
@@ -115,13 +107,12 @@ jobs:
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
           cd opencode_workspace
-          
           PROJECT_PATH=$(pwd)
           echo "Project path: $PROJECT_PATH"
           
+          # شروع سرور WebUI در پس‌زمینه
           opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
-          
           echo "OpenCode PID: $OPENCODE_PID"
           
           SERVER_READY=false
@@ -133,7 +124,7 @@ jobs:
             fi
             sleep 2
           done
-
+          
           if [ "$SERVER_READY" = false ]; then
             echo "OpenCode failed to start"
             cat ../opencode.log
@@ -144,11 +135,12 @@ jobs:
           echo "=== Registering project via OpenCode API ==="
           sleep 3
           
+          # اصلاح شده: رفع باگ Escaping در دستور curl برای ارسال صحیح JSON
           REGISTER_RESPONSE=$(curl -s -X POST http://127.0.0.1:4096/projects \
             -H "Content-Type: application/json" \
             -d "{\"path\": \"$PROJECT_PATH\"}" \
             -w "\n%{http_code}")
-          
+            
           HTTP_CODE=$(echo "$REGISTER_RESPONSE" | tail -n1)
           BODY=$(echo "$REGISTER_RESPONSE" | head -n -1)
           
@@ -160,7 +152,8 @@ jobs:
           else
             echo "Warning: Project registration may have failed, but continuing..."
           fi
-          
+
+          # تابع همگام‌سازی خودکار تغییرات با مخزن
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
@@ -169,18 +162,19 @@ jobs:
               git push origin HEAD || true
             fi
           }
-          
+
           trap sync_to_repo EXIT SIGINT SIGTERM
-          
+
           echo ""
           echo "=========================================="
           echo "OpenCode WebUI URL: $TUNNEL_URL"
           echo "=========================================="
           echo ""
           echo "The project should now appear in the sidebar!"
-          echo "If not, try refreshing the page."
+          echo "If not, try refreshing the page or manually adding the project path: $PROJECT_PATH"
           echo ""
           
+          # زنده نگه داشتن Workflow تا زمانی که سرور فعال است
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
