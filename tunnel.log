@@ -60,3 +60,5 @@
 2026-08-21T18:19:26Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.192.57
 2026-08-21T18:19:27Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.57
 2026-08-21T18:19:27Z INF Registered tunnel connection connIndex=0 connection=da33323a-0c7f-4e11-98af-9af8e3233cfe event=0 ip=198.41.192.57 location=iad17 protocol=quic
+2026-08-21T18:21:41Z ERR  error="stream 1 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-21T18:21:41Z ERR Request failed error="stream 1 canceled by remote with error code 0" connIndex=0 dest=https://devel-projected-fighter-lancaster.trycloudflare.com/plugins/events event=0 ip=198.41.192.57 type=http
