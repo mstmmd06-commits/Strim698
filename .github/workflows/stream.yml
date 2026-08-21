@@ -44,69 +44,39 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Clean profile and create package.json
+      - name: Clean profile
         run: |
-          echo "Cleaning profile directory..."
           rm -rf "$HOME/.dsh/profiles/web"
           mkdir -p "$HOME/.dsh/profiles/web"
-          
-          printf '%s\n' '{
-  "name": "dsh-profile-web",
-  "private": true,
-  "dependencies": {
-    "dshmarket": "^1.16.0"
-  },
-  "dsh": {
-    "profile": {
-      "bundles": [
-        "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app",
-        "dshmarket"
-      ]
-    }
-  }
-}' > "$HOME/.dsh/profiles/web/package.json"
-          
-          echo "package.json created:"
-          cat "$HOME/.dsh/profiles/web/package.json"
 
-      - name: Install Plugin Market
+      - name: Create package.json
+        run: |
+          cd "$HOME/.dsh/profiles/web"
+          echo '{"name":"dsh-profile-web","private":true,"dependencies":{"dshmarket":"^1.16.0"},"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@deepseek-ai/dsh-web-app","dshmarket"]}}}' > package.json
+          cat package.json
+
+      - name: Install dependencies
         run: |
           cd "$HOME/.dsh/profiles/web"
           pnpm install --no-frozen-lockfile
 
-      - name: Configure 9Router Provider
+      - name: Create settings.yaml
         env:
-          NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
-          echo "Configuring 9Router..."
+          echo "llm-pi-ai:" > "$HOME/.dsh/profiles/web/settings.yaml"
+          echo "  providers:" >> "$HOME/.dsh/profiles/web/settings.yaml"
+          echo "    nine-router:" >> "$HOME/.dsh/profiles/web/settings.yaml"
+          echo "      apiKeyEnv: NINE_ROUTER_API_KEY" >> "$HOME/.dsh/profiles/web/settings.yaml"
+          echo "      api: openai-completions" >> "$HOME/.dsh/profiles/web/settings.yaml"
+          echo "      baseURL: $NINE_ROUTER_BASE_URL" >> "$HOME/.dsh/profiles/web/settings.yaml"
           
-          cat > "$HOME/.dsh/profiles/web/settings.yaml" << EOF
-llm-pi-ai:
-  providers:
-    nine-router:
-      apiKeyEnv: NINE_ROUTER_API_KEY
-      api: openai-completions
-      baseURL: $NINE_ROUTER_BASE_URL
-EOF
+          cp "$HOME/.dsh/profiles/web/settings.yaml" "$HOME/.dsh/settings.yaml"
           
-          cat > "$HOME/.dsh/settings.yaml" << EOF
-llm-pi-ai:
-  providers:
-    nine-router:
-      apiKeyEnv: NINE_ROUTER_API_KEY
-      api: openai-completions
-      baseURL: $NINE_ROUTER_BASE_URL
-EOF
-          
-          echo "Profile settings.yaml:"
+          echo "=== settings.yaml ==="
           cat "$HOME/.dsh/profiles/web/settings.yaml"
-          echo ""
-          echo "Global settings.yaml:"
-          cat "$HOME/.dsh/settings.yaml"
 
-      - name: Start DeepSeek Harness and Cloudflare Tunnel
+      - name: Start services
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
@@ -118,14 +88,12 @@ EOF
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
             if [ -n "$URL" ]; then
-              echo "Tunnel URL found: $URL"
               break
             fi
             sleep 2
           done
           
           if [ -z "$URL" ]; then
-            echo "ERROR: Failed to get Cloudflare URL"
             cat tunnel.log
             exit 1
           fi
@@ -137,32 +105,19 @@ EOF
           
           for i in {1..40}; do
             if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
-              echo "Web server is ready"
+              echo "Web server ready"
               break
             fi
             sleep 2
           done
           
           echo ""
-          echo "============================================================"
-          echo "ACCESS URL: $URL"
-          echo "============================================================"
+          echo "URL: $URL"
           echo ""
-          echo "INSTALLED PLUGINS:"
-          echo "  - dsh-market (plugin marketplace)"
-          echo ""
-          echo "CONFIGURED PROVIDER:"
-          echo "  - nine-router (9Router gateway)"
-          echo "  - Base URL: $NINE_ROUTER_BASE_URL"
-          echo ""
-          echo "AFTER LOGIN:"
-          echo "1. Go to Settings -> Models"
-          echo "2. You should see 'nine-router' in the provider list"
-          echo "3. Click on 'nine-router'"
-          echo "4. Click 'Fetch available models'"
-          echo "5. Models from 9Router will be listed automatically"
-          echo ""
-          echo "If nine-router does not appear, check harness.log for errors"
+          echo "After login:"
+          echo "1. Settings -> Models"
+          echo "2. Click nine-router"
+          echo "3. Click Fetch available models"
           echo ""
           
           sync_to_repo() {
