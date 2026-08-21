@@ -49,10 +49,10 @@ jobs:
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
           cat > AGENTS.md << 'AGENTS_EOF'
           # Project: My OpenCode Project
-
+          
           ## Overview
           This is a coding project managed by OpenCode AI Agent.
-
+          
           ## Guidelines
           - Use modern coding practices
           - Keep code clean and well-documented
@@ -82,17 +82,12 @@ jobs:
           pwd
           ls -la
 
-      - name: Pre-register Project (Guaranteed Fix)
-        env:
-          NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
-          NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
+      - name: Pre-register Project with opencode run
         run: |
           cd opencode_workspace
-          echo "=== Running opencode run to pre-register project in database ==="
-          echo "This guarantees the project appears in WebUI sidebar"
-          opencode run "Say hello" --format json 2>&1 | head -50 || true
+          echo "=== Running opencode run to pre-register project ==="
+          opencode run "Say hello and confirm you are ready" --format json 2>&1 | head -30 || true
           echo "=== Pre-registration complete ==="
-          ls -la ~/.local/share/opencode/ || true
 
       - name: Start Cloudflare Tunnel
         run: |
@@ -114,16 +109,19 @@ jobs:
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
 
       - name: Start OpenCode WebUI
-        env:
-          NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
-          NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
           cd opencode_workspace
           PROJECT_PATH=$(pwd)
           echo "Project path: $PROJECT_PATH"
+          
+          # Base64 encode the project path
+          ENCODED_PATH=$(echo -n "$PROJECT_PATH" | base64)
+          echo "Base64 encoded path: $ENCODED_PATH"
+          
           opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
           echo "OpenCode PID: $OPENCODE_PID"
+          
           SERVER_READY=false
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
@@ -133,16 +131,14 @@ jobs:
             fi
             sleep 2
           done
+          
           if [ "$SERVER_READY" = false ]; then
             echo "OpenCode failed to start"
             cat ../opencode.log
             exit 1
           fi
+          
           sleep 3
-          echo ""
-          echo "=== Verifying project registration via API ==="
-          curl -s http://127.0.0.1:4096/api/project | head -200 || true
-          echo ""
           
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE"
@@ -154,13 +150,30 @@ jobs:
           }
           
           trap sync_to_repo EXIT SIGINT SIGTERM
+          
+          # Generate the direct project URL
+          DIRECT_URL="${TUNNEL_URL}/${ENCODED_PATH}"
+          
           echo ""
           echo "=========================================="
-          echo "OpenCode WebUI URL: $TUNNEL_URL"
+          echo "🎯 OpenCode WebUI URLS:"
           echo "=========================================="
           echo ""
-          echo "The project SHOULD now appear in the sidebar!"
-          echo "Just open the URL and you will see 'opencode-project' in the list."
+          echo "📍 HOME PAGE (see all projects):"
+          echo "   $TUNNEL_URL"
+          echo ""
+          echo "🎯 DIRECT PROJECT LINK (open project directly):"
+          echo "   $DIRECT_URL"
+          echo ""
+          echo "🚀 NEW SESSION (start a new session):"
+          echo "   ${DIRECT_URL}/session"
+          echo ""
+          echo "=========================================="
+          echo ""
+          echo "✅ HOW TO USE:"
+          echo "1. Open the DIRECT PROJECT LINK above"
+          echo "2. The project will automatically load"
+          echo "3. You can start coding immediately!"
           echo ""
           
           while kill -0 $OPENCODE_PID 2>/dev/null; do
