@@ -7,10 +7,10 @@ jobs:
   run-harness:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # مجوز کامل برای خواندن و نوشتن روی مخزن
 
     steps:
-      # ۱. دریافت کدهای مخزن
+      # ۱. دریافت کامل مخزن
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -33,50 +33,59 @@ jobs:
       # ۴. نصب رسمی پکیج DeepSeek Harness
       - name: Install DeepSeek Harness
         run: |
-          echo "📦 در حال دانلود و نصب کامل پکیج DeepSeek Harness..."
+          echo "📦 در حال نصب رسمی پکیج DeepSeek Harness..."
           npm install -g @deepseek-ai/dsh@latest
 
-      # ۵. تنظیم هویت Git برای کامیت خودکار
-      - name: Configure Git Identity
+      # ۵. آماده‌سازی پوشه‌های ذخیره‌سازی داده‌ها و تنظیم گیت
+      - name: Setup Persistent Storage & Git
         run: |
+          # ساخت پوشه‌های ذخیره تاریخچه، تنظیمات و چت‌های دیپ‌سیک داخل مخزن
+          mkdir -p .dsh_data .deepseek_data workspace
+          
+          # اتصال داده‌های سیستمی دیپ‌سیک به داخل مخزن (Symlink)
+          ln -sfn "$(pwd)/.dsh_data" "$HOME/.dsh"
+          ln -sfn "$(pwd)/.deepseek_data" "$HOME/.deepseek"
+
+          # تنظیم مشخصات کامیت‌کننده گیت
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # ۶. اجرای وب و تونل و تست سلامت
+      # ۶. راه‌اندازی WebUI، حل خطای 403، بکاپ خودکار سریع
       - name: Start DeepSeek Harness & Cloudflare Tunnel
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           echo "=================================================="
-          echo "🚀 در حال اجرای DeepSeek Harness WebUI..."
+          echo "🚀 در حال بالا آوردن DeepSeek Harness WebUI..."
           echo "=================================================="
 
-          # اجرای سرور در پس‌زمینه
+          # اجرای وب سرور در پس‌زمینه
           dsh web --port 3080 --no-open > harness.log 2>&1 &
           HARNESS_PID=$!
 
-          # بررسی مداوم تا زمان فعال شدن پورت 3080
-          echo "⏳ در حال انتظار برای آماده‌سازی کامل سرور وب..."
+          # تست سلامت پورت ۳۰۸۰
+          echo "⏳ در حال انتظار برای آماده‌سازی کامل وب..."
           for i in {1..40}; do
             if curl -s http://127.0.0.1:3080 > /dev/null 2>&1; then
-              echo "✅ سرور دیپ‌سیک روی پورت 3080 با موفقیت آماده شد!"
+              echo "✅ وب‌سرور دیپ‌سیک با موفقیت آماده به کار شد!"
               break
             fi
-            sleep 3
+            sleep 2
           done
 
-          # اجرای تونل کلادفلر
-          cloudflared tunnel --url http://127.0.0.1:3080 > tunnel.log 2>&1 &
+          # اجرای کلادفلر با هدر بازنویسی‌شده جهت رفع کامل ارور 403
+          cloudflared tunnel --url http://127.0.0.1:3080 --http-host-header "127.0.0.1:3080" > tunnel.log 2>&1 &
           TUNNEL_PID=$!
 
-          # استخراج و نمایش لینک عمومی در لاگ
-          sleep 5
+          # استخراج و نمایش لینک
+          sleep 6
           for i in {1..15}; do
             URL=$(grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]*\.trycloudflare\.com' tunnel.log | head -n 1)
             if [ -n "$URL" ]; then
               echo ""
               echo "============================================================"
-              echo "🌐 لینک ورود به DeepSeek Harness WebUI آماده است:"
+              echo "🌐 لینک ورود بدون مشکل 403 و با بکاپ لحظه‌ای:"
               echo "👉 $URL"
               echo "============================================================"
               echo ""
@@ -85,22 +94,23 @@ jobs:
             sleep 2
           done
 
-          # تابع ذخیره و کامیت خودکار تغییرات روی مخزن
+          # تابع هوشمند ذخیره تک‌تک جزئیات و فایل‌ها روی مخزن
           sync_to_repo() {
             if [ -n "$(git status --porcelain)" ]; then
-              echo "📦 در حال کامیت و پوش تغییرات روی مخزن..."
+              echo "📦 تغییرات جدید شناسایی شد؛ در حال ذخیره و Push روی مخزن..."
               git add -A
-              git commit -m "Auto-save workspace: $(date '+%Y-%m-%d %H:%M:%S') [skip ci]" || true
+              git commit -m "Auto-save all workspace and session data: $(date '+%Y-%m-%d %H:%M:%S') [skip ci]" || true
               git push origin HEAD || true
-              echo "✅ تغییرات با موفقیت ذخیره شدند."
+              echo "✅ تمام فایل‌ها و سشن‌ها با موفقیت ذخیره شدند."
             fi
           }
 
-          trap sync_to_repo EXIT
+          # ذخیره لحظه خروج یا متوقف شدن ورک‌فلو
+          trap sync_to_repo EXIT SIGINT SIGTERM
 
-          # حلقه زنده نگه داشتن رانر و بکاپ منظم
-          echo "⚡ رانر فعال است..."
+          # پایش مستمر و ذخیره‌سازی هر ۳۰ ثانیه یک‌بار
+          echo "⚡ رانر فعال است و هر ۳۰ ثانیه تمام اطلاعات روی مخزن همگام می‌شوند..."
           while kill -0 $HARNESS_PID 2>/dev/null; do
-            sleep 120
+            sleep 30
             sync_to_repo
           done
