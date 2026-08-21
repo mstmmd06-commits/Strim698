@@ -21,6 +21,12 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Git Identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Install Cloudflared
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
@@ -39,45 +45,39 @@ jobs:
         run: |
           mkdir -p opencode_workspace
           cd opencode_workspace
-          
           echo "# My OpenCode Project" > README.md
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
-          
-          cat << 'EOF' > AGENTS.md
-# Project: My OpenCode Project
-
-## Overview
-This is a coding project managed by OpenCode AI Agent.
-
-## Guidelines
-- Use modern coding practices
-- Keep code clean and well-documented
-EOF
-
+          {
+            echo "# Project: My OpenCode Project"
+            echo ""
+            echo "## Overview"
+            echo "This is a coding project managed by OpenCode AI Agent."
+            echo ""
+            echo "## Guidelines"
+            echo "- Use modern coding practices"
+            echo "- Keep code clean and well-documented"
+          } > AGENTS.md
           git init -b main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Initial project setup with AGENTS.md"
-          
-          # اصلاح شده: استفاده از Heredoc برای ساخت فایل JSON معتبر و بدون خطای نگارشی
-          cat << EOF > opencode.json
-{
-  "provider": {
-    "name": "nine-router",
-    "apiKey": "$NINE_ROUTER_API_KEY",
-    "baseURL": "$NINE_ROUTER_BASE_URL",
-    "model": "deepseek-chat"
-  },
-  "mcp": {},
-  "agents": {
-    "general": {
-      "model": "deepseek-chat"
-    }
-  }
-}
-EOF
-          
+          {
+            echo "{"
+            echo '  "provider": {'
+            echo '    "name": "nine-router",'
+            echo '    "apiKey": "'"$NINE_ROUTER_API_KEY"'",'
+            echo '    "baseURL": "'"$NINE_ROUTER_BASE_URL"'",'
+            echo '    "model": "deepseek-chat"'
+            echo '  },'
+            echo '  "mcp": {},'
+            echo '  "agents": {'
+            echo '    "general": {'
+            echo '      "model": "deepseek-chat"'
+            echo '    }'
+            echo '  }'
+            echo "}"
+          } > opencode.json
           echo "=== Project Initialized ==="
           pwd
           ls -la
@@ -109,12 +109,9 @@ EOF
           cd opencode_workspace
           PROJECT_PATH=$(pwd)
           echo "Project path: $PROJECT_PATH"
-          
-          # شروع سرور WebUI در پس‌زمینه
           opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
           echo "OpenCode PID: $OPENCODE_PID"
-          
           SERVER_READY=false
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
@@ -124,36 +121,29 @@ EOF
             fi
             sleep 2
           done
-          
           if [ "$SERVER_READY" = false ]; then
             echo "OpenCode failed to start"
             cat ../opencode.log
             exit 1
           fi
-          
           echo ""
           echo "=== Registering project via OpenCode API ==="
-          sleep 3
-          
-          # اصلاح شده: رفع باگ Escaping در دستور curl برای ارسال صحیح JSON
+          sleep 5
+          JSON_PAYLOAD="{\"path\": \"$PROJECT_PATH\"}"
+          echo "Sending payload: $JSON_PAYLOAD"
           REGISTER_RESPONSE=$(curl -s -X POST http://127.0.0.1:4096/projects \
             -H "Content-Type: application/json" \
-            -d "{\"path\": \"$PROJECT_PATH\"}" \
+            -d "$JSON_PAYLOAD" \
             -w "\n%{http_code}")
-            
           HTTP_CODE=$(echo "$REGISTER_RESPONSE" | tail -n1)
           BODY=$(echo "$REGISTER_RESPONSE" | head -n -1)
-          
           echo "API Response: HTTP $HTTP_CODE"
           echo "Body: $BODY"
-          
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
             echo "Project successfully registered!"
           else
             echo "Warning: Project registration may have failed, but continuing..."
           fi
-
-          # تابع همگام‌سازی خودکار تغییرات با مخزن
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
@@ -162,19 +152,15 @@ EOF
               git push origin HEAD || true
             fi
           }
-
           trap sync_to_repo EXIT SIGINT SIGTERM
-
           echo ""
           echo "=========================================="
           echo "OpenCode WebUI URL: $TUNNEL_URL"
           echo "=========================================="
           echo ""
           echo "The project should now appear in the sidebar!"
-          echo "If not, try refreshing the page or manually adding the project path: $PROJECT_PATH"
+          echo "If not, try refreshing the page."
           echo ""
-          
-          # زنده نگه داشتن Workflow تا زمانی که سرور فعال است
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
