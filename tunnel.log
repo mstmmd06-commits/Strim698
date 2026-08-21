@@ -43,3 +43,5 @@
 2026-08-21T16:08:02Z INF precheck component="TCP Connectivity" details="HTTP/2 connection successful" run_id=c952e932-c95a-4c00-a99d-bf4b98b5853b status=pass target=region2.v2.argotunnel.com
 2026-08-21T16:08:02Z INF precheck component="Cloudflare API" details="API is reachable" run_id=c952e932-c95a-4c00-a99d-bf4b98b5853b status=pass target=api.cloudflare.com:443
 2026-08-21T16:08:02Z INF precheck complete hard_fail=false run_id=c952e932-c95a-4c00-a99d-bf4b98b5853b suggested_protocol=quic
+2026-08-21T16:10:40Z ERR  error="stream 201 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:3080
+2026-08-21T16:10:40Z ERR Request failed error="stream 201 canceled by remote with error code 0" connIndex=0 dest=https://ran-dried-serving-sitemap.trycloudflare.com/plugins/events event=0 ip=198.41.192.77 type=http
