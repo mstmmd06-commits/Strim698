@@ -1,0 +1,14 @@
+{
+  "provider": {
+    "name": "nine-router",
+    "apiKey": "sk-d042a2942b66660e-wjdw1y-30603948",
+    "baseURL": "https://9router-production-d138.up.railway.app/v1",
+    "model": "deepseek-chat"
+  },
+  "mcp": {},
+  "agents": {
+    "general": {
+      "model": "deepseek-chat"
+    }
+  }
+}
