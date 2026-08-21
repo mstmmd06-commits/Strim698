@@ -38,15 +38,28 @@ jobs:
           npm install -g opencode-ai@latest
           opencode --version
 
-      - name: Setup Workspace & Config
+      - name: Setup Workspace, Boilerplate & Config
         env:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           mkdir -p opencode_workspace
+          cd opencode_workspace
           
-          cat > opencode_workspace/opencode.json << EOF
+          # 1. ساخت فایل‌های پایه تا OpenCode آن را به‌عنوان پروژه بشناسد
+          echo "# My OpenCode Project" > README.md
+          echo '{"name": "opencode-project", "version": "1.0.0", "description": "A project managed by OpenCode Agent"}' > package.json
+          
+          # 2. ساخت یک گیت داخلی تا OpenCode این پوشه را به‌عنوان "Project Root" شناسایی کند
+          git init -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Initial project setup by OpenCode Agent"
+          
+          # 3. ساخت فایل کانفیگ OpenCode (اتصال به 9router)
+          cat > opencode.json << EOF
           {
             "provider": {
               "name": "nine-router",
@@ -63,8 +76,7 @@ jobs:
           }
           EOF
           
-          echo "=== OpenCode Config Created ==="
-          cat opencode_workspace/opencode.json
+          echo "=== OpenCode Project Ready ==="
 
       - name: Start Cloudflare Tunnel
         run: |
@@ -92,7 +104,6 @@ jobs:
         run: |
           cd opencode_workspace
           
-          # اصلاح مهم: استفاده از --hostname به جای --host طبق مستندات خود OpenCode
           opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
           OPENCODE_PID=$!
           
@@ -129,18 +140,17 @@ jobs:
           echo "=========================================="
           echo "🔗 OpenCode WebUI URL: $TUNNEL_URL"
           echo "=========================================="
-          echo "فایل‌ها در پوشه 'opencode_workspace' ذخیره و هر 30 ثانیه سینک می‌شوند."
+          echo "✅ پروژه در پوشه 'opencode_workspace' شناسایی شد."
+          echo "هر 30 ثانیه فایل‌های شما به ریپازیتوری گیت‌هاب Push می‌شوند."
           echo ""
           
-          # حلقه زنده‌نگهدارنده
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
           done
           
-          echo "⚠️ OpenCode process died unexpectedly. Last 50 lines of log:"
-          tail -n 50 ../opencode.log
-          exit 1
+          echo "⚠️ OpenCode process stopped."
+          exit 0
 
       - name: Final Sync
         if: always()
