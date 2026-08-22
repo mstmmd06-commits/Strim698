@@ -27,9 +27,8 @@ jobs:
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
-          cloudflared --version
 
-      - name: Install Kiosk Dependencies (Minimal - No XFCE!)
+      - name: Install Kiosk Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -53,24 +52,39 @@ jobs:
             libxcb-dri3-0 \
             libsecret-1-0 \
             libappindicator3-1 \
-            libu2f-udev \
             fonts-liberation \
             fonts-noto-color-emoji
-          
-          echo "✅ Minimal Kiosk environment installed"
 
-      - name: Download OpenCode Desktop (Latest v1.18.21)
+      - name: Download & Install OpenCode Desktop (DEB package - Stable!)
         run: |
-          mkdir -p /opt/opencode
-          cd /opt/opencode
+          mkdir -p /tmp/opencode-installer
+          cd /tmp/opencode-installer
           
-          # دانلود نسخه دسکتاپ واقعی اوپن‌کد
-          wget -O opencode-desktop.AppImage \
-            "https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-desktop-linux-x86_64.AppImage"
+          # دانلود نسخه .deb (پایدارتر از AppImage - بدون نیاز به FUSE)
+          wget -O opencode-desktop.deb \
+            "https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-desktop-linux-amd64.deb"
           
-          chmod +x opencode-desktop.AppImage
-          ls -lh opencode-desktop.AppImage
-          echo "✅ OpenCode Desktop downloaded"
+          ls -lh opencode-desktop.deb
+          echo "📦 Installing OpenCode Desktop DEB package..."
+          
+          # نصب پکیج DEB
+          sudo dpkg -i opencode-desktop.deb || true
+          
+          # رفع وابستگی‌های گم شده
+          sudo apt-get install -f -y
+          
+          # بررسی نصب موفقیت‌آمیز
+          which opencode-desktop || echo "Checking alternative names..."
+          ls -la /usr/bin/ | grep -i opencode || true
+          ls -la /opt/ | grep -i opencode || true
+          
+          # پیدا کردن مسیر دقیق باینری
+          OPENCODE_BIN=$(find /usr -name "*opencode-desktop*" -type f 2>/dev/null | head -1)
+          if [ -z "$OPENCODE_BIN" ]; then
+            OPENCODE_BIN=$(find /opt -name "*opencode*" -type f 2>/dev/null | head -1)
+          fi
+          echo "OPENCODE_BIN=$OPENCODE_BIN" >> $GITHUB_ENV
+          echo "✅ OpenCode Desktop installed at: $OPENCODE_BIN"
 
       - name: Setup Workspace & Config
         env:
@@ -105,44 +119,41 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Initial project setup" || true
-          
-          echo "=== Workspace Ready ==="
-          pwd
-          ls -la
 
-      - name: Start Xvfb (Virtual Display)
+      - name: Start Xvfb
         run: |
-          # نمایشگر مجازی فول‌اچ‌دی
           Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /tmp/xvfb.log 2>&1 &
           XVFB_PID=$!
           echo "XVFB_PID=$XVFB_PID" >> $GITHUB_ENV
           export DISPLAY=:99
           sleep 2
-          
           if ps -p $XVFB_PID > /dev/null; then
-            echo "✅ Xvfb started on :99 (1920x1080)"
+            echo "✅ Xvfb started"
           else
-            echo "❌ Xvfb failed"
             cat /tmp/xvfb.log
             exit 1
           fi
 
-      - name: Start Openbox (Minimal Window Manager - NO XFCE!)
+      - name: Start Openbox
         run: |
           export DISPLAY=:99
           openbox --sm-disable > /tmp/openbox.log 2>&1 &
           OPENBOX_PID=$!
           echo "OPENBOX_PID=$OPENBOX_PID" >> $GITHUB_ENV
           sleep 2
-          echo "✅ Openbox started (Kiosk Mode - Ultra Lightweight)"
+          echo "✅ Openbox started (Kiosk Mode)"
 
-      - name: Start OpenCode Desktop App
+      - name: Start OpenCode Desktop & Debug
         run: |
           export DISPLAY=:99
           cd opencode_workspace
           
-          # اجرای مستقیم اوپن‌کد دسکتاپ
-          /opt/opencode/opencode-desktop.AppImage \
+          # اجرای OpenCode با مسیر پیدا شده
+          echo "🚀 Starting OpenCode Desktop..."
+          echo "Binary path: $OPENCODE_BIN"
+          
+          # اجرا با nohup و ذخیره کامل لاگ
+          nohup "$OPENCODE_BIN" \
             --no-sandbox \
             --disable-gpu \
             --disable-software-rasterizer \
@@ -153,48 +164,49 @@ jobs:
           
           OPENCODE_PID=$!
           echo "OPENCODE_PID=$OPENCODE_PID" >> $GITHUB_ENV
-          sleep 8
+          
+          # صبر بیشتر برای استارت
+          sleep 10
           
           if ps -p $OPENCODE_PID > /dev/null; then
-            echo "✅ OpenCode Desktop launched (PID: $OPENCODE_PID)"
+            echo "✅ OpenCode Desktop is running! (PID: $OPENCODE_PID)"
+            echo "📋 Last 10 log lines:"
+            tail -10 /tmp/opencode-desktop.log || true
           else
-            echo "⚠️ OpenCode may have crashed, check logs"
+            echo "❌ OpenCode Desktop failed to start!"
+            echo "📋 Full log:"
+            cat /tmp/opencode-desktop.log
+            echo ""
+            echo "🔍 Checking for alternative binaries..."
+            find / -name "*opencode*" -type f 2>/dev/null | head -20
+            exit 1
           fi
 
-      - name: Start VNC Server (TCP Only)
+      - name: Start VNC Server
         run: |
           export DISPLAY=:99
-          
-          # VNC سرور روی پورت 5900 (فقط TCP - با Cloudflare سازگار)
           x11vnc -display :99 -forever -nopw -shared -rfbport 5900 \
             -ncache 10 -ncache_cr -xkb > /tmp/x11vnc.log 2>&1 &
-          
           VNC_PID=$!
           echo "VNC_PID=$VNC_PID" >> $GITHUB_ENV
           sleep 3
-          
-          echo "✅ VNC server ready on port 5900 (TCP)"
+          echo "✅ VNC ready on port 5900"
 
-      - name: Start noVNC Web Interface
+      - name: Start noVNC
         run: |
-          # noVNC روی پورت 4096 - Cloudflare این پورت رو forward می‌کنه
           websockify --web=/usr/share/novnc/ 4096 localhost:5900 \
             > /tmp/websockify.log 2>&1 &
-          
           WEBSOCKIFY_PID=$!
           echo "WEBSOCKIFY_PID=$WEBSOCKIFY_PID" >> $GITHUB_ENV
           sleep 5
-          
-          # بررسی آماده بودن noVNC
           if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
             echo "✅ noVNC ready on port 4096"
           else
-            echo "❌ noVNC failed"
             cat /tmp/websockify.log
             exit 1
           fi
 
-      - name: Start Cloudflare Quick Tunnel
+      - name: Start Cloudflare Tunnel
         run: |
           cloudflared tunnel --url http://127.0.0.1:4096 > tunnel.log 2>&1 &
           TUNNEL_PID=$!
@@ -210,46 +222,32 @@ jobs:
           done
           
           if [ -z "$URL" ]; then
-            echo "❌ Cloudflare Tunnel failed"
             cat tunnel.log
             exit 1
           fi
           
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
-          echo "✅ Tunnel URL: $URL"
+          echo "✅ Tunnel: $URL"
 
-      - name: Display Access Info & Keep Alive
+      - name: Access Info & Keep Alive
         run: |
           echo ""
           echo "=========================================="
-          echo "🎯 OpenCode Desktop Kiosk is LIVE!"
+          echo "🎯 OpenCode Desktop Kiosk LIVE!"
           echo "=========================================="
           echo ""
-          echo "🖥️  ACCESS YOUR DESKTOP APP:"
+          echo "🖥️  ACCESS URL:"
           echo "   ${TUNNEL_URL}/vnc.html?autoconnect=true&resize=scale"
           echo ""
-          echo "🔧 FEATURES:"
-          echo "   ✅ Real OpenCode Desktop App (Electron v1.18.21)"
-          echo "   ✅ Kiosk Mode (Openbox - NO XFCE bloat!)"
-          echo "   ✅ Ultra Lightweight (~200-400 MB RAM)"
-          echo "   ✅ Full mouse & keyboard support"
-          echo "   ✅ Auto-resize to browser window"
-          echo "   ✅ Cloudflare Tunnel (No UDP needed!)"
-          echo ""
-          echo "📱 ACCESS FROM PHONE:"
-          echo "   Just open the URL above in any mobile browser!"
-          echo ""
-          echo "📂 WORKSPACE:"
-          echo "   /home/runner/work/Strim698/Strim698/opencode_workspace"
-          echo ""
-          echo "⏰ Session Duration:"
-          echo "   GitHub Actions: max 6 hours"
-          echo "   Auto-save to repo: every 30 seconds"
+          echo "⚡ Features:"
+          echo "   ✅ OpenCode Desktop DEB (Stable!)"
+          echo "   ✅ Kiosk Mode (No XFCE)"
+          echo "   ✅ ~300-400 MB RAM"
+          echo "   ✅ Cloudflare TCP (No UDP)"
           echo ""
           echo "=========================================="
           echo ""
           
-          # تابع سینک خودکار
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE/opencode_workspace"
             if [ -n "$(git status --porcelain)" ]; then
@@ -259,45 +257,34 @@ jobs:
             fi
           }
           
-          trap sync_to_repo EXIT SIGINT SIGTERM
+          trap sync_to_repo EXIT
           
-          # زنده نگه داشتن ورک‌فلو + چک کردن پروسه‌ها
+          # نمایش لاگ اولیه
+          echo "📋 OpenCode initial log:"
+          tail -20 /tmp/opencode-desktop.log || true
+          echo ""
+          
           while true; do
             sleep 30
             
-            # بررسی همه پروسه‌ها
-            ALL_OK=true
-            for pid_var in XVFB_PID OPENBOX_PID VNC_PID WEBSOCKIFY_PID TUNNEL_PID; do
-              pid=${!pid_var}
-              if [ -n "$pid" ] && ! kill -0 $pid 2>/dev/null; then
-                echo "⚠️ Process $pid_var ($pid) died!"
-                ALL_OK=false
-              fi
-            done
-            
-            if [ "$ALL_OK" = false ]; then
-              echo "Critical process died, exiting..."
+            if ! ps -p $OPENCODE_PID > /dev/null 2>/dev/null; then
+              echo "❌ OpenCode died! Last logs:"
+              tail -30 /tmp/opencode-desktop.log
               break
             fi
             
             sync_to_repo
-            
-            # لاگ مختصر
             MEM=$(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2 }')
-            echo "[$(date '+%H:%M:%S')] All processes running - Memory: $MEM"
+            echo "[$(date '+%H:%M:%S')] Running - Mem: $MEM"
           done
 
-      - name: Final Sync & Cleanup
+      - name: Cleanup
         if: always()
         run: |
+          kill $XVFB_PID $OPENBOX_PID $VNC_PID $WEBSOCKIFY_PID $TUNNEL_PID 2>/dev/null || true
           cd "$GITHUB_WORKSPACE/opencode_workspace"
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
-            git commit -m "Final sync: $(date '+%Y-%m-%d %H:%M:%S')" || true
+            git commit -m "Final sync" || true
             git push origin HEAD || true
           fi
-          
-          # کشتن همه پروسه‌ها
-          kill $XVFB_PID $OPENBOX_PID $VNC_PID $WEBSOCKIFY_PID $TUNNEL_PID 2>/dev/null || true
-          
-          echo "✅ Cleanup complete"
