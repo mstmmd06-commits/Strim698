@@ -1,10 +1,10 @@
-name: OpenCode Desktop + Neko (WebRTC over TCP)
+name: OpenCode Desktop Kiosk + Cloudflare
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-neko-opencode:
+  run-opencode-desktop:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -22,73 +22,55 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install Cloudflared (Quick Tunnel)
+      - name: Install Cloudflared
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
+          cloudflared --version
 
-      - name: Build Custom Neko Image with OpenCode Desktop
+      - name: Install Kiosk Dependencies (Minimal - No XFCE!)
         run: |
-          # ایجاد Dockerfile برای Neko + OpenCode Desktop
-          mkdir -p neko-opencode
-          cd neko-opencode
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb \
+            openbox \
+            x11vnc \
+            websockify \
+            novnc \
+            wget \
+            curl \
+            ca-certificates \
+            libgtk-3-0 \
+            libnotify4 \
+            libnss3 \
+            libxss1 \
+            libxtst6 \
+            xdg-utils \
+            libatspi2.0-0 \
+            libdrm2 \
+            libgbm1 \
+            libxcb-dri3-0 \
+            libsecret-1-0 \
+            libappindicator3-1 \
+            libu2f-udev \
+            fonts-liberation \
+            fonts-noto-color-emoji
           
-          cat > Dockerfile << 'DOCKERFILE_EOF'
-          # استفاده از ایمیج پایه‌ی مرورگر Neko
-          FROM ghcr.io/m1k1o/neko/firefox:latest
+          echo "✅ Minimal Kiosk environment installed"
+
+      - name: Download OpenCode Desktop (Latest v1.18.21)
+        run: |
+          mkdir -p /opt/opencode
+          cd /opt/opencode
           
-          USER root
+          # دانلود نسخه دسکتاپ واقعی اوپن‌کد
+          wget -O opencode-desktop.AppImage \
+            "https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-desktop-linux-x86_64.AppImage"
           
-          # نصب وابستگی‌های مورد نیاز برای اوپن‌کد دسکتاپ
-          RUN apt-get update && apt-get install -y --no-install-recommends \
-              wget \
-              curl \
-              libgtk-3-0 \
-              libnotify4 \
-              libnss3 \
-              libxss1 \
-              libxtst6 \
-              xdg-utils \
-              libatspi2.0-0 \
-              libdrm2 \
-              libgbm1 \
-              libxcb-dri3-0 \
-              libsecret-1-0 \
-              fonts-liberation \
-              && rm -rf /var/lib/apt/lists/*
-          
-          # دانلود اوپن‌کد دسکتاپ (نسخه صحیح v1.18.21)
-          RUN wget -O /tmp/opencode-desktop.AppImage \
-              "https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-desktop-linux-x86_64.AppImage" && \
-              chmod +x /tmp/opencode-desktop.AppImage && \
-              mv /tmp/opencode-desktop.AppImage /usr/local/bin/opencode-desktop && \
-              echo "✅ OpenCode Desktop installed successfully"
-          
-          # اسکریپت استارت سفارشی
-          RUN echo '#!/bin/bash\n\
-          set -e\n\
-          \n\
-          # تنظیم متغیرهای محیطی\n\
-          export DISPLAY=:99.0\n\
-          \n\
-          # استارت اوپن‌کد دسکتاپ در پس‌زمینه\n\
-          /usr/local/bin/opencode-desktop --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage &\n\
-          OPENCODE_PID=$!\n\
-          echo "OpenCode Desktop started with PID: $OPENCODE_PID"\n\
-          \n\
-          # استارت Neko\n\
-          exec /usr/bin/supervisord -c /etc/neko/supervisord.conf\n\
-          ' > /usr/local/bin/start-custom.sh && \
-              chmod +x /usr/local/bin/start-custom.sh
-          
-          CMD ["/usr/local/bin/start-custom.sh"]
-          DOCKERFILE_EOF
-          
-          # ساخت ایمیج داکر
-          docker build -t neko-opencode:latest .
-          echo "✅ Custom Neko image built successfully"
-          docker images | grep neko-opencode
+          chmod +x opencode-desktop.AppImage
+          ls -lh opencode-desktop.AppImage
+          echo "✅ OpenCode Desktop downloaded"
 
       - name: Setup Workspace & Config
         env:
@@ -125,62 +107,99 @@ jobs:
           git commit -m "Initial project setup" || true
           
           echo "=== Workspace Ready ==="
+          pwd
           ls -la
 
-      - name: Start Neko Container with OpenCode Desktop (TCPMUX Mode)
+      - name: Start Xvfb (Virtual Display)
         run: |
-          # اجرای کانتینر با TCPMUX (WebRTC روی TCP به جای UDP)
-          # این با Cloudflare سازگاره!
-          docker run -d \
-            --name neko-opencode \
-            --shm-size=2g \
-            -p 8080:8080 \
-            -p 52000-52100:52000-52100/tcp \
-            -v $(pwd)/opencode_workspace:/home/neko/workspace \
-            -e NEKO_SCREEN='1920x1080@30' \
-            -e NEKO_PASSWORD='opencode123' \
-            -e NEKO_PASSWORD_ADMIN='admin123' \
-            -e NEKO_TCPMUX='true' \
-            -e NEKO_EPR='52000-52100' \
-            -e NEKO_ICELITE='true' \
-            -e NEKO_UDPMUX='0' \
-            -e NEKO_NAT1TO1='127.0.0.1' \
-            neko-opencode:latest
+          # نمایشگر مجازی فول‌اچ‌دی
+          Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /tmp/xvfb.log 2>&1 &
+          XVFB_PID=$!
+          echo "XVFB_PID=$XVFB_PID" >> $GITHUB_ENV
+          export DISPLAY=:99
+          sleep 2
           
-          # صبر برای استارت کامل
-          sleep 15
-          
-          # بررسی لاگ‌ها
-          echo "=== Container Logs (last 30 lines) ==="
-          docker logs neko-opencode 2>&1 | tail -30 || true
-          echo "======================================"
-          
-          # بررسی اینکه کانتینر زنده هست
-          if docker ps | grep -q neko-opencode; then
-            echo "✅ Neko container is running!"
+          if ps -p $XVFB_PID > /dev/null; then
+            echo "✅ Xvfb started on :99 (1920x1080)"
           else
-            echo "❌ Neko container failed to start"
-            docker logs neko-opencode 2>&1 | tail -50
+            echo "❌ Xvfb failed"
+            cat /tmp/xvfb.log
             exit 1
           fi
+
+      - name: Start Openbox (Minimal Window Manager - NO XFCE!)
+        run: |
+          export DISPLAY=:99
+          openbox --sm-disable > /tmp/openbox.log 2>&1 &
+          OPENBOX_PID=$!
+          echo "OPENBOX_PID=$OPENBOX_PID" >> $GITHUB_ENV
+          sleep 2
+          echo "✅ Openbox started (Kiosk Mode - Ultra Lightweight)"
+
+      - name: Start OpenCode Desktop App
+        run: |
+          export DISPLAY=:99
+          cd opencode_workspace
           
-          # بررسی پورت
-          if curl -s http://127.0.0.1:8080 > /dev/null 2>&1; then
-            echo "✅ Web interface is accessible"
+          # اجرای مستقیم اوپن‌کد دسکتاپ
+          /opt/opencode/opencode-desktop.AppImage \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-software-rasterizer \
+            --disable-dev-shm-usage \
+            --window-size=1920,1080 \
+            --start-maximized \
+            > /tmp/opencode-desktop.log 2>&1 &
+          
+          OPENCODE_PID=$!
+          echo "OPENCODE_PID=$OPENCODE_PID" >> $GITHUB_ENV
+          sleep 8
+          
+          if ps -p $OPENCODE_PID > /dev/null; then
+            echo "✅ OpenCode Desktop launched (PID: $OPENCODE_PID)"
           else
-            echo "⚠️ Web interface not yet ready, waiting..."
-            sleep 10
+            echo "⚠️ OpenCode may have crashed, check logs"
+          fi
+
+      - name: Start VNC Server (TCP Only)
+        run: |
+          export DISPLAY=:99
+          
+          # VNC سرور روی پورت 5900 (فقط TCP - با Cloudflare سازگار)
+          x11vnc -display :99 -forever -nopw -shared -rfbport 5900 \
+            -ncache 10 -ncache_cr -xkb > /tmp/x11vnc.log 2>&1 &
+          
+          VNC_PID=$!
+          echo "VNC_PID=$VNC_PID" >> $GITHUB_ENV
+          sleep 3
+          
+          echo "✅ VNC server ready on port 5900 (TCP)"
+
+      - name: Start noVNC Web Interface
+        run: |
+          # noVNC روی پورت 4096 - Cloudflare این پورت رو forward می‌کنه
+          websockify --web=/usr/share/novnc/ 4096 localhost:5900 \
+            > /tmp/websockify.log 2>&1 &
+          
+          WEBSOCKIFY_PID=$!
+          echo "WEBSOCKIFY_PID=$WEBSOCKIFY_PID" >> $GITHUB_ENV
+          sleep 5
+          
+          # بررسی آماده بودن noVNC
+          if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
+            echo "✅ noVNC ready on port 4096"
+          else
+            echo "❌ noVNC failed"
+            cat /tmp/websockify.log
+            exit 1
           fi
 
       - name: Start Cloudflare Quick Tunnel
         run: |
-          # تانل به پورت وب (8080) و TCPMUX ports (52000-52100)
-          # Cloudflare فقط TCP رو forward می‌کنه که با TCPMUX سازگاره!
-          cloudflared tunnel --url http://127.0.0.1:8080 > tunnel.log 2>&1 &
+          cloudflared tunnel --url http://127.0.0.1:4096 > tunnel.log 2>&1 &
           TUNNEL_PID=$!
           echo "TUNNEL_PID=$TUNNEL_PID" >> $GITHUB_ENV
           
-          # استخراج URL تانل
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
@@ -203,36 +222,29 @@ jobs:
         run: |
           echo ""
           echo "=========================================="
-          echo "🎯 OpenCode Desktop on Neko (WebRTC over TCP)"
+          echo "🎯 OpenCode Desktop Kiosk is LIVE!"
           echo "=========================================="
           echo ""
-          echo "🌐 ACCESS URL:"
-          echo "   ${TUNNEL_URL}"
+          echo "🖥️  ACCESS YOUR DESKTOP APP:"
+          echo "   ${TUNNEL_URL}/vnc.html?autoconnect=true&resize=scale"
           echo ""
-          echo "🔐 LOGIN CREDENTIALS:"
-          echo "   Username: admin"
-          echo "   Password: admin123"
+          echo "🔧 FEATURES:"
+          echo "   ✅ Real OpenCode Desktop App (Electron v1.18.21)"
+          echo "   ✅ Kiosk Mode (Openbox - NO XFCE bloat!)"
+          echo "   ✅ Ultra Lightweight (~200-400 MB RAM)"
+          echo "   ✅ Full mouse & keyboard support"
+          echo "   ✅ Auto-resize to browser window"
+          echo "   ✅ Cloudflare Tunnel (No UDP needed!)"
           echo ""
-          echo "💻 WHAT YOU'LL SEE:"
-          echo "   ✅ OpenCode Desktop App (running automatically)"
-          echo "   ✅ Firefox Browser (web interface)"
-          echo "   ✅ Workspace mounted at /home/neko/workspace"
-          echo ""
-          echo "⚡ WHY THIS WORKS:"
-          echo "   ✅ WebRTC over TCP (TCPMUX mode)"
-          echo "   ✅ Compatible with Cloudflare Tunnel"
-          echo "   ✅ No UDP port forwarding needed"
-          echo "   ✅ Works behind NAT/firewalls"
-          echo ""
-          echo "📱 ACCESS FROM YOUR PHONE:"
-          echo "   Just open the URL above in any browser!"
+          echo "📱 ACCESS FROM PHONE:"
+          echo "   Just open the URL above in any mobile browser!"
           echo ""
           echo "📂 WORKSPACE:"
-          echo "   Your files are at /home/neko/workspace"
+          echo "   /home/runner/work/Strim698/Strim698/opencode_workspace"
           echo ""
-          echo "⚠️ IMPORTANT:"
-          echo "   - Use Google Chrome or Firefox for best experience"
-          echo "   - Disable VPN/ad-blockers that might block WebRTC"
+          echo "⏰ Session Duration:"
+          echo "   GitHub Actions: max 6 hours"
+          echo "   Auto-save to repo: every 30 seconds"
           echo ""
           echo "=========================================="
           echo ""
@@ -249,29 +261,43 @@ jobs:
           
           trap sync_to_repo EXIT SIGINT SIGTERM
           
-          # زنده نگه داشتن ورک‌فلو
-          while docker ps | grep -q neko-opencode; do
+          # زنده نگه داشتن ورک‌فلو + چک کردن پروسه‌ها
+          while true; do
             sleep 30
+            
+            # بررسی همه پروسه‌ها
+            ALL_OK=true
+            for pid_var in XVFB_PID OPENBOX_PID VNC_PID WEBSOCKIFY_PID TUNNEL_PID; do
+              pid=${!pid_var}
+              if [ -n "$pid" ] && ! kill -0 $pid 2>/dev/null; then
+                echo "⚠️ Process $pid_var ($pid) died!"
+                ALL_OK=false
+              fi
+            done
+            
+            if [ "$ALL_OK" = false ]; then
+              echo "Critical process died, exiting..."
+              break
+            fi
+            
             sync_to_repo
-            echo "[$(date '+%H:%M:%S')] Neko running... Memory: $(docker stats --no-stream --format '{{.MemUsage}}' neko-opencode 2>/dev/null || echo 'N/A')"
+            
+            # لاگ مختصر
+            MEM=$(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2 }')
+            echo "[$(date '+%H:%M:%S')] All processes running - Memory: $MEM"
           done
 
-      - name: Cleanup
+      - name: Final Sync & Cleanup
         if: always()
         run: |
-          # کشتن تانل
-          kill $TUNNEL_PID 2>/dev/null || true
-          
-          # توقف و حذف کانتینر
-          docker stop neko-opencode 2>/dev/null || true
-          docker rm neko-opencode 2>/dev/null || true
-          
-          # سینک نهایی
           cd "$GITHUB_WORKSPACE/opencode_workspace"
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
             git commit -m "Final sync: $(date '+%Y-%m-%d %H:%M:%S')" || true
             git push origin HEAD || true
           fi
+          
+          # کشتن همه پروسه‌ها
+          kill $XVFB_PID $OPENBOX_PID $VNC_PID $WEBSOCKIFY_PID $TUNNEL_PID 2>/dev/null || true
           
           echo "✅ Cleanup complete"
