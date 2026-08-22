@@ -30,17 +30,17 @@ jobs:
 
       - name: Build Custom Neko Image with OpenCode Desktop
         run: |
-          # ساخت یک کانتینر سفارشی با اوپن‌کد دسکتاپ
+          # ایجاد Dockerfile برای Neko + OpenCode Desktop
           mkdir -p neko-opencode
           cd neko-opencode
           
           cat > Dockerfile << 'DOCKERFILE_EOF'
-          # استفاده از ایمیج پایه‌ی مرورگر به عنوان پایه (چون همه چیز رو آماده داره)
+          # استفاده از ایمیج پایه‌ی مرورگر Neko (همه چیز آماده هست)
           FROM ghcr.io/m1k1o/neko/firefox:latest
           
           USER root
           
-          # نصب وابستگی‌های مورد نیاز برای اوپن‌کد دسکتاپ
+          # نصب وابستگی‌های مورد نیاز برای اوپن‌کد دسکتاپ (Electron app)
           RUN apt-get update && apt-get install -y --no-install-recommends \
               wget \
               curl \
@@ -58,24 +58,26 @@ jobs:
               fonts-liberation \
               && rm -rf /var/lib/apt/lists/*
           
-          # دانلود اوپن‌کد دسکتاپ (نسخه لینوکس)
+          # دانلود اوپن‌کد دسکتاپ (نسخه صحیح v1.18.21 - آخرین نسخه)
           RUN wget -O /tmp/opencode-desktop.AppImage \
-              "https://github.com/sst/opencode/releases/download/v1.0.223/opencode-desktop-linux-x86_64.AppImage" && \
+              "https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-desktop-linux-x86_64.AppImage" && \
               chmod +x /tmp/opencode-desktop.AppImage && \
-              mv /tmp/opencode-desktop.AppImage /usr/local/bin/opencode-desktop
+              mv /tmp/opencode-desktop.AppImage /usr/local/bin/opencode-desktop && \
+              echo "✅ OpenCode Desktop installed successfully"
           
-          # اسکریپت استارت سفارشی
+          # اسکریپت استارت سفارشی که هم اوپن‌کد و هم Neko رو اجرا می‌کنه
           RUN echo '#!/bin/bash\n\
           set -e\n\
           \n\
-          # تنظیم متغیرهای محیطی برای اوپن‌کد دسکتاپ (اگه لازم باشه)\n\
+          # تنظیم متغیرهای محیطی\n\
           export DISPLAY=:99.0\n\
           \n\
           # استارت اوپن‌کد دسکتاپ در پس‌زمینه (بدون سندباکس چون تو کانتینر هستیم)\n\
-          opencode-desktop --no-sandbox --disable-gpu --disable-software-rasterizer &\n\
+          /usr/local/bin/opencode-desktop --no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage &\n\
+          OPENCODE_PID=$!\n\
+          echo "OpenCode Desktop started with PID: $OPENCODE_PID"\n\
           \n\
-          # استارت مرورگر پیش‌فرض (برای رابط کاربری وب)\n\
-          # اگه فقط اوپن‌کد رو می‌خوای، این خط رو کامنت کن یا تغییرش بده\n\
+          # استارت Neko (مرورگر فایرفاکس و رابط وب)\n\
           exec /usr/bin/supervisord -c /etc/neko/supervisord.conf\n\
           ' > /usr/local/bin/start-custom.sh && \
               chmod +x /usr/local/bin/start-custom.sh
@@ -85,8 +87,8 @@ jobs:
           
           # ساخت ایمیج داکر
           docker build -t neko-opencode:latest .
-          echo "✅ Custom Neko image built"
-          docker images
+          echo "✅ Custom Neko image built successfully"
+          docker images | grep neko-opencode
 
       - name: Setup Workspace & Config
         env:
@@ -123,10 +125,12 @@ jobs:
           git commit -m "Initial project setup" || true
           
           echo "=== Workspace Ready ==="
+          ls -la
 
       - name: Start Neko Container with OpenCode Desktop
         run: |
           # اجرای کانتینر با اوپن‌کد دسکتاپ
+          # shm-size=2g: جلوگیری از crash Electron apps
           docker run -d \
             --name neko-opencode \
             --shm-size=2g \
@@ -145,17 +149,25 @@ jobs:
           sleep 15
           
           # بررسی لاگ‌ها برای دیباگ
-          echo "=== Container Logs ==="
-          docker logs neko-opencode | tail -50 || true
-          echo "======================"
+          echo "=== Container Logs (last 30 lines) ==="
+          docker logs neko-opencode 2>&1 | tail -30 || true
+          echo "======================================"
           
           # بررسی اینکه کانتینر زنده هست
           if docker ps | grep -q neko-opencode; then
             echo "✅ Neko container is running!"
           else
             echo "❌ Neko container failed to start"
-            docker logs neko-opencode
+            docker logs neko-opencode 2>&1 | tail -50
             exit 1
+          fi
+          
+          # بررسی اینکه پورت 8080 فعال هست
+          if curl -s http://127.0.0.1:8080 > /dev/null 2>&1; then
+            echo "✅ Web interface is accessible"
+          else
+            echo "⚠️ Web interface not yet ready, waiting..."
+            sleep 10
           fi
 
       - name: Start Cloudflare Quick Tunnel
@@ -199,19 +211,22 @@ jobs:
           echo "   Password: admin123"
           echo ""
           echo "💻 WHAT YOU'LL SEE:"
-          echo "   - OpenCode Desktop App (running automatically)"
-          echo "   - Firefox Browser (for web interface)"
-          echo "   - Workspace mounted at /home/neko/workspace"
+          echo "   ✅ OpenCode Desktop App (running automatically)"
+          echo "   ✅ Firefox Browser (web interface)"
+          echo "   ✅ Workspace mounted at /home/neko/workspace"
           echo ""
           echo "⚡ WHY NEKO IS BETTER:"
           echo "   ✅ WebRTC streaming (faster than VNC)"
           echo "   ✅ Isolated Docker container"
           echo "   ✅ No XFCE bloat"
           echo "   ✅ Runs entirely in your browser"
-          echo "   ✅ Low memory usage (~300MB)"
+          echo "   ✅ Low memory usage (~300-400MB)"
           echo ""
           echo "📱 ACCESS FROM YOUR PHONE:"
           echo "   Just open the URL above in any browser!"
+          echo ""
+          echo "📂 WORKSPACE:"
+          echo "   Your files are at /home/neko/workspace"
           echo ""
           echo "=========================================="
           echo ""
@@ -232,7 +247,7 @@ jobs:
           while docker ps | grep -q neko-opencode; do
             sleep 30
             sync_to_repo
-            echo "[$(date '+%H:%M:%S')] Neko is running... Memory: $(docker stats --no-stream --format '{{.MemUsage}}' neko-opencode)"
+            echo "[$(date '+%H:%M:%S')] Neko running... Memory: $(docker stats --no-stream --format '{{.MemUsage}}' neko-opencode 2>/dev/null || echo 'N/A')"
           done
 
       - name: Cleanup
@@ -242,8 +257,8 @@ jobs:
           kill $TUNNEL_PID 2>/dev/null || true
           
           # توقف و حذف کانتینر
-          docker stop neko-opencode || true
-          docker rm neko-opencode || true
+          docker stop neko-opencode 2>/dev/null || true
+          docker rm neko-opencode 2>/dev/null || true
           
           # سینک نهایی
           cd "$GITHUB_WORKSPACE/opencode_workspace"
