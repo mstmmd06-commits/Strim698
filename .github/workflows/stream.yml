@@ -1,10 +1,10 @@
-name: OpenCode Desktop Kiosk + Cloudflare
+name: OpenCode WebUI + Cloudflare Tunnel
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-opencode-desktop:
+  run-opencode:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -15,6 +15,11 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Setup Git Identity
         run: |
@@ -28,75 +33,35 @@ jobs:
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
 
-      - name: Install Kiosk Dependencies
+      - name: Install OpenCode
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            xvfb \
-            openbox \
-            x11vnc \
-            websockify \
-            novnc \
-            wget \
-            curl \
-            ca-certificates \
-            libgtk-3-0 \
-            libnotify4 \
-            libnss3 \
-            libxss1 \
-            libxtst6 \
-            xdg-utils \
-            libatspi2.0-0 \
-            libdrm2 \
-            libgbm1 \
-            libxcb-dri3-0 \
-            libsecret-1-0 \
-            libappindicator3-1 \
-            fonts-liberation \
-            fonts-noto-color-emoji
+          npm install -g opencode-ai@latest
+          opencode --version
 
-      - name: Download & Install OpenCode Desktop (DEB package - Stable!)
-        run: |
-          mkdir -p /tmp/opencode-installer
-          cd /tmp/opencode-installer
-          
-          # دانلود نسخه .deb (پایدارتر از AppImage - بدون نیاز به FUSE)
-          wget -O opencode-desktop.deb \
-            "https://github.com/anomalyco/opencode/releases/download/v1.18.21/opencode-desktop-linux-amd64.deb"
-          
-          ls -lh opencode-desktop.deb
-          echo "📦 Installing OpenCode Desktop DEB package..."
-          
-          # نصب پکیج DEB
-          sudo dpkg -i opencode-desktop.deb || true
-          
-          # رفع وابستگی‌های گم شده
-          sudo apt-get install -f -y
-          
-          # بررسی نصب موفقیت‌آمیز
-          which opencode-desktop || echo "Checking alternative names..."
-          ls -la /usr/bin/ | grep -i opencode || true
-          ls -la /opt/ | grep -i opencode || true
-          
-          # پیدا کردن مسیر دقیق باینری
-          OPENCODE_BIN=$(find /usr -name "*opencode-desktop*" -type f 2>/dev/null | head -1)
-          if [ -z "$OPENCODE_BIN" ]; then
-            OPENCODE_BIN=$(find /opt -name "*opencode*" -type f 2>/dev/null | head -1)
-          fi
-          echo "OPENCODE_BIN=$OPENCODE_BIN" >> $GITHUB_ENV
-          echo "✅ OpenCode Desktop installed at: $OPENCODE_BIN"
-
-      - name: Setup Workspace & Config
+      - name: Setup Workspace & Initialize Project
         env:
           NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
           NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
           mkdir -p opencode_workspace
           cd opencode_workspace
-          
           echo "# My OpenCode Project" > README.md
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
+          cat > AGENTS.md << 'AGENTS_EOF'
+          # Project: My OpenCode Project
           
+          ## Overview
+          This is a coding project managed by OpenCode AI Agent.
+          
+          ## Guidelines
+          - Use modern coding practices
+          - Keep code clean and well-documented
+          AGENTS_EOF
+          git init -b main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Initial project setup with AGENTS.md"
           cat > opencode.json << CFG_EOF
           {
             "provider": {
@@ -113,105 +78,20 @@ jobs:
             }
           }
           CFG_EOF
-          
-          git init -b main
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Initial project setup" || true
+          echo "=== Project Initialized ==="
+          pwd
+          ls -la
 
-      - name: Start Xvfb
+      - name: Pre-register Project with opencode run
         run: |
-          Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset > /tmp/xvfb.log 2>&1 &
-          XVFB_PID=$!
-          echo "XVFB_PID=$XVFB_PID" >> $GITHUB_ENV
-          export DISPLAY=:99
-          sleep 2
-          if ps -p $XVFB_PID > /dev/null; then
-            echo "✅ Xvfb started"
-          else
-            cat /tmp/xvfb.log
-            exit 1
-          fi
-
-      - name: Start Openbox
-        run: |
-          export DISPLAY=:99
-          openbox --sm-disable > /tmp/openbox.log 2>&1 &
-          OPENBOX_PID=$!
-          echo "OPENBOX_PID=$OPENBOX_PID" >> $GITHUB_ENV
-          sleep 2
-          echo "✅ Openbox started (Kiosk Mode)"
-
-      - name: Start OpenCode Desktop & Debug
-        run: |
-          export DISPLAY=:99
           cd opencode_workspace
-          
-          # اجرای OpenCode با مسیر پیدا شده
-          echo "🚀 Starting OpenCode Desktop..."
-          echo "Binary path: $OPENCODE_BIN"
-          
-          # اجرا با nohup و ذخیره کامل لاگ
-          nohup "$OPENCODE_BIN" \
-            --no-sandbox \
-            --disable-gpu \
-            --disable-software-rasterizer \
-            --disable-dev-shm-usage \
-            --window-size=1920,1080 \
-            --start-maximized \
-            > /tmp/opencode-desktop.log 2>&1 &
-          
-          OPENCODE_PID=$!
-          echo "OPENCODE_PID=$OPENCODE_PID" >> $GITHUB_ENV
-          
-          # صبر بیشتر برای استارت
-          sleep 10
-          
-          if ps -p $OPENCODE_PID > /dev/null; then
-            echo "✅ OpenCode Desktop is running! (PID: $OPENCODE_PID)"
-            echo "📋 Last 10 log lines:"
-            tail -10 /tmp/opencode-desktop.log || true
-          else
-            echo "❌ OpenCode Desktop failed to start!"
-            echo "📋 Full log:"
-            cat /tmp/opencode-desktop.log
-            echo ""
-            echo "🔍 Checking for alternative binaries..."
-            find / -name "*opencode*" -type f 2>/dev/null | head -20
-            exit 1
-          fi
-
-      - name: Start VNC Server
-        run: |
-          export DISPLAY=:99
-          x11vnc -display :99 -forever -nopw -shared -rfbport 5900 \
-            -ncache 10 -ncache_cr -xkb > /tmp/x11vnc.log 2>&1 &
-          VNC_PID=$!
-          echo "VNC_PID=$VNC_PID" >> $GITHUB_ENV
-          sleep 3
-          echo "✅ VNC ready on port 5900"
-
-      - name: Start noVNC
-        run: |
-          websockify --web=/usr/share/novnc/ 4096 localhost:5900 \
-            > /tmp/websockify.log 2>&1 &
-          WEBSOCKIFY_PID=$!
-          echo "WEBSOCKIFY_PID=$WEBSOCKIFY_PID" >> $GITHUB_ENV
-          sleep 5
-          if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
-            echo "✅ noVNC ready on port 4096"
-          else
-            cat /tmp/websockify.log
-            exit 1
-          fi
+          echo "=== Running opencode run to pre-register project ==="
+          opencode run "Say hello and confirm you are ready" --format json 2>&1 | head -30 || true
+          echo "=== Pre-registration complete ==="
 
       - name: Start Cloudflare Tunnel
         run: |
           cloudflared tunnel --url http://127.0.0.1:4096 > tunnel.log 2>&1 &
-          TUNNEL_PID=$!
-          echo "TUNNEL_PID=$TUNNEL_PID" >> $GITHUB_ENV
-          
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
@@ -220,36 +100,48 @@ jobs:
             fi
             sleep 2
           done
-          
           if [ -z "$URL" ]; then
+            echo "Tunnel URL not found"
             cat tunnel.log
             exit 1
           fi
-          
+          echo "Tunnel URL: $URL"
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
-          echo "✅ Tunnel: $URL"
 
-      - name: Access Info & Keep Alive
+      - name: Start OpenCode WebUI
         run: |
-          echo ""
-          echo "=========================================="
-          echo "🎯 OpenCode Desktop Kiosk LIVE!"
-          echo "=========================================="
-          echo ""
-          echo "🖥️  ACCESS URL:"
-          echo "   ${TUNNEL_URL}/vnc.html?autoconnect=true&resize=scale"
-          echo ""
-          echo "⚡ Features:"
-          echo "   ✅ OpenCode Desktop DEB (Stable!)"
-          echo "   ✅ Kiosk Mode (No XFCE)"
-          echo "   ✅ ~300-400 MB RAM"
-          echo "   ✅ Cloudflare TCP (No UDP)"
-          echo ""
-          echo "=========================================="
-          echo ""
+          cd opencode_workspace
+          PROJECT_PATH=$(pwd)
+          echo "Project path: $PROJECT_PATH"
+          
+          # Base64 encode the project path
+          ENCODED_PATH=$(echo -n "$PROJECT_PATH" | base64)
+          echo "Base64 encoded path: $ENCODED_PATH"
+          
+          opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
+          OPENCODE_PID=$!
+          echo "OpenCode PID: $OPENCODE_PID"
+          
+          SERVER_READY=false
+          for i in {1..40}; do
+            if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
+              echo "OpenCode WebUI is ready"
+              SERVER_READY=true
+              break
+            fi
+            sleep 2
+          done
+          
+          if [ "$SERVER_READY" = false ]; then
+            echo "OpenCode failed to start"
+            cat ../opencode.log
+            exit 1
+          fi
+          
+          sleep 3
           
           sync_to_repo() {
-            cd "$GITHUB_WORKSPACE/opencode_workspace"
+            cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
               git add -A
               git commit -m "Auto-save: $(date '+%Y-%m-%d %H:%M:%S') [skip ci]" || true
@@ -257,34 +149,44 @@ jobs:
             fi
           }
           
-          trap sync_to_repo EXIT
+          trap sync_to_repo EXIT SIGINT SIGTERM
           
-          # نمایش لاگ اولیه
-          echo "📋 OpenCode initial log:"
-          tail -20 /tmp/opencode-desktop.log || true
+          # Generate the direct project URL
+          DIRECT_URL="${TUNNEL_URL}/${ENCODED_PATH}"
+          
+          echo ""
+          echo "=========================================="
+          echo "🎯 OpenCode WebUI URLS:"
+          echo "=========================================="
+          echo ""
+          echo "📍 HOME PAGE (see all projects):"
+          echo "   $TUNNEL_URL"
+          echo ""
+          echo "🎯 DIRECT PROJECT LINK (open project directly):"
+          echo "   $DIRECT_URL"
+          echo ""
+          echo "🚀 NEW SESSION (start a new session):"
+          echo "   ${DIRECT_URL}/session"
+          echo ""
+          echo "=========================================="
+          echo ""
+          echo "✅ HOW TO USE:"
+          echo "1. Open the DIRECT PROJECT LINK above"
+          echo "2. The project will automatically load"
+          echo "3. You can start coding immediately!"
           echo ""
           
-          while true; do
+          while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
-            
-            if ! ps -p $OPENCODE_PID > /dev/null 2>/dev/null; then
-              echo "❌ OpenCode died! Last logs:"
-              tail -30 /tmp/opencode-desktop.log
-              break
-            fi
-            
             sync_to_repo
-            MEM=$(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2 }')
-            echo "[$(date '+%H:%M:%S')] Running - Mem: $MEM"
           done
 
-      - name: Cleanup
+      - name: Final Sync
         if: always()
         run: |
-          kill $XVFB_PID $OPENBOX_PID $VNC_PID $WEBSOCKIFY_PID $TUNNEL_PID 2>/dev/null || true
-          cd "$GITHUB_WORKSPACE/opencode_workspace"
+          cd "$GITHUB_WORKSPACE"
           if [ -n "$(git status --porcelain)" ]; then
             git add -A
-            git commit -m "Final sync" || true
+            git commit -m "Final sync: $(date '+%Y-%m-%d %H:%M:%S')" || true
             git push origin HEAD || true
           fi
