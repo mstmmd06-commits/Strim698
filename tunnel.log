@@ -45,3 +45,5 @@
 2026-08-22T12:54:07Z INF precheck complete hard_fail=false run_id=f4983cc8-d981-4bc1-8286-6ffd813dbaeb suggested_protocol=quic
 2026-08-22T13:06:13Z ERR  error="stream 73 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:4096
 2026-08-22T13:06:13Z ERR Request failed error="stream 73 canceled by remote with error code 0" connIndex=0 dest=https://direct-amy-gospel-cache.trycloudflare.com/global/event event=0 ip=198.41.200.113 type=http
+2026-08-22T13:06:45Z ERR  error="stream 461 canceled by remote with error code 0" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:4096
+2026-08-22T13:06:45Z ERR Request failed error="stream 461 canceled by remote with error code 0" connIndex=0 dest=https://direct-amy-gospel-cache.trycloudflare.com/global/event event=0 ip=198.41.200.113 type=http
