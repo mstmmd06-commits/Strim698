@@ -9,6 +9,15 @@ jobs:
     permissions:
       contents: write
 
+    env:
+      # Auth credentials
+      OPENCODE_USERNAME: opencode
+      OPENCODE_PASSWORD: SecurePass123!@#
+      
+      # Provider configuration
+      NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
+      NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -27,26 +36,30 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install Cloudflared
+      - name: Install Dependencies
         run: |
+          # Install Cloudflared
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           rm cloudflared-linux-amd64.deb
-
-      - name: Install OpenCode
-        run: |
+          
+          # Install OpenCode
           npm install -g opencode-ai@latest
           opencode --version
+          
+          # Install jq for JSON manipulation
+          sudo apt-get update
+          sudo apt-get install -y jq
 
       - name: Setup Workspace & Initialize Project
-        env:
-          NINE_ROUTER_API_KEY: ${{ secrets.NINE_ROUTER_API_KEY }}
-          NINE_ROUTER_BASE_URL: ${{ secrets.NINE_ROUTER_BASE_URL }}
         run: |
           mkdir -p opencode_workspace
           cd opencode_workspace
+          
+          # Create project files
           echo "# My OpenCode Project" > README.md
           echo '{"name": "opencode-project", "version": "1.0.0"}' > package.json
+          
           cat > AGENTS.md << 'AGENTS_EOF'
           # Project: My OpenCode Project
           
@@ -56,42 +69,79 @@ jobs:
           ## Guidelines
           - Use modern coding practices
           - Keep code clean and well-documented
+          - Follow best practices for code quality
           AGENTS_EOF
+          
+          # Initialize git
           git init -b main
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Initial project setup with AGENTS.md"
+          
+          # Fix: Correct provider configuration format
+          # This is the CRITICAL fix for "model not detected" error
           cat > opencode.json << CFG_EOF
           {
+            "\$schema": "https://opencode.ai/config.json",
             "provider": {
               "name": "nine-router",
               "apiKey": "$NINE_ROUTER_API_KEY",
               "baseURL": "$NINE_ROUTER_BASE_URL",
               "model": "deepseek-chat"
             },
+            "model": "deepseek-chat",
             "mcp": {},
             "agents": {
               "general": {
                 "model": "deepseek-chat"
               }
+            },
+            "server": {
+              "port": 4096,
+              "hostname": "0.0.0.0",
+              "mdns": false
             }
           }
           CFG_EOF
+          
+          # Set proper permissions
+          chmod -R 755 .
+          
           echo "=== Project Initialized ==="
           pwd
           ls -la
+          echo ""
+          echo "=== opencode.json content ==="
+          cat opencode.json
 
-      - name: Pre-register Project with opencode run
+      - name: Pre-register Project in Database
         run: |
           cd opencode_workspace
           echo "=== Running opencode run to pre-register project ==="
-          opencode run "Say hello and confirm you are ready" --format json 2>&1 | head -30 || true
+          
+          # This creates the project entry in the database
+          opencode run "Say hello and confirm you are ready to work" 2>&1 | head -50 || true
+          
           echo "=== Pre-registration complete ==="
+          
+          # Verify project is registered
+          echo ""
+          echo "=== Checking registered projects ==="
+          DB_PATH="$HOME/.local/share/opencode/opencode.db"
+          if [ -f "$DB_PATH" ]; then
+            sqlite3 "$DB_PATH" "SELECT id, worktree, vcs FROM project;" || echo "No projects found"
+          else
+            echo "Database not found yet - will be created on first run"
+          fi
 
       - name: Start Cloudflare Tunnel
         run: |
+          # Start tunnel pointing to OpenCode port
           cloudflared tunnel --url http://127.0.0.1:4096 > tunnel.log 2>&1 &
+          TUNNEL_PID=$!
+          
+          # Wait for tunnel URL
           URL=""
           for i in {1..30}; do
             URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' tunnel.log | head -n 1)
@@ -100,32 +150,44 @@ jobs:
             fi
             sleep 2
           done
+          
           if [ -z "$URL" ]; then
-            echo "Tunnel URL not found"
+            echo "❌ Tunnel URL not found"
             cat tunnel.log
             exit 1
           fi
-          echo "Tunnel URL: $URL"
+          
+          echo "✅ Tunnel URL: $URL"
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
+          echo "TUNNEL_PID=$TUNNEL_PID" >> $GITHUB_ENV
 
       - name: Start OpenCode WebUI
         run: |
           cd opencode_workspace
           PROJECT_PATH=$(pwd)
-          echo "Project path: $PROJECT_PATH"
+          echo "📁 Project path: $PROJECT_PATH"
           
-          # Base64 encode the project path
+          # Base64 encode the project path for direct URL
           ENCODED_PATH=$(echo -n "$PROJECT_PATH" | base64)
-          echo "Base64 encoded path: $ENCODED_PATH"
+          echo "🔗 Base64 encoded path: $ENCODED_PATH"
           
-          opencode web --port 4096 --hostname 127.0.0.1 > ../opencode.log 2>&1 &
+          # Fix: Start with authentication and proper hostname
+          # This fixes "workspace load failed" and "file save failed" errors
+          OPENCODE_SERVER_PASSWORD="$OPENCODE_PASSWORD" \
+          OPENCODE_SERVER_USERNAME="$OPENCODE_USERNAME" \
+          opencode web \
+            --port 4096 \
+            --hostname 0.0.0.0 \
+            > ../opencode.log 2>&1 &
+          
           OPENCODE_PID=$!
-          echo "OpenCode PID: $OPENCODE_PID"
+          echo "🚀 OpenCode PID: $OPENCODE_PID"
           
+          # Wait for server to be ready
           SERVER_READY=false
           for i in {1..40}; do
             if curl -s http://127.0.0.1:4096 > /dev/null 2>&1; then
-              echo "OpenCode WebUI is ready"
+              echo "✅ OpenCode WebUI is ready"
               SERVER_READY=true
               break
             fi
@@ -133,13 +195,24 @@ jobs:
           done
           
           if [ "$SERVER_READY" = false ]; then
-            echo "OpenCode failed to start"
+            echo "❌ OpenCode failed to start"
             cat ../opencode.log
             exit 1
           fi
           
-          sleep 3
+          sleep 5
           
+          # Verify provider is loaded
+          echo ""
+          echo "=== Verifying provider configuration ==="
+          opencode config show 2>&1 | head -30 || echo "Config check skipped"
+          
+          # Verify project registration
+          echo ""
+          echo "=== Verifying project registration ==="
+          curl -s http://127.0.0.1:4096/api/project 2>&1 | head -20 || echo "API check skipped"
+          
+          # Sync function
           sync_to_repo() {
             cd "$GITHUB_WORKSPACE"
             if [ -n "$(git status --porcelain)" ]; then
@@ -151,31 +224,47 @@ jobs:
           
           trap sync_to_repo EXIT SIGINT SIGTERM
           
-          # Generate the direct project URL
+          # Generate URLs
           DIRECT_URL="${TUNNEL_URL}/${ENCODED_PATH}"
+          SESSION_URL="${DIRECT_URL}/session"
           
           echo ""
-          echo "=========================================="
-          echo "🎯 OpenCode WebUI URLS:"
-          echo "=========================================="
-          echo ""
-          echo "📍 HOME PAGE (see all projects):"
-          echo "   $TUNNEL_URL"
-          echo ""
-          echo "🎯 DIRECT PROJECT LINK (open project directly):"
-          echo "   $DIRECT_URL"
-          echo ""
-          echo "🚀 NEW SESSION (start a new session):"
-          echo "   ${DIRECT_URL}/session"
-          echo ""
-          echo "=========================================="
-          echo ""
-          echo "✅ HOW TO USE:"
-          echo "1. Open the DIRECT PROJECT LINK above"
-          echo "2. The project will automatically load"
-          echo "3. You can start coding immediately!"
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║         🎯 OpenCode WebUI - COMPLETE SETUP INFO            ║"
+          echo "╠════════════════════════════════════════════════════════════╣"
+          echo "║                                                            ║"
+          echo "║  🔐 AUTHENTICATION:                                        ║"
+          echo "║     Username: $OPENCODE_USERNAME                            ║"
+          echo "║     Password: $OPENCODE_PASSWORD                            ║"
+          echo "║                                                            ║"
+          echo "║  📍 HOME PAGE (see all projects):                          ║"
+          echo "║     $TUNNEL_URL                                            ║"
+          echo "║                                                            ║"
+          echo "║  🎯 DIRECT PROJECT LINK:                                   ║"
+          echo "║     $DIRECT_URL                                            ║"
+          echo "║                                                            ║"
+          echo "║  🚀 NEW SESSION:                                           ║"
+          echo "║     $SESSION_URL                                           ║"
+          echo "║                                                            ║"
+          echo "╠════════════════════════════════════════════════════════════╣"
+          echo "║  📖 HOW TO USE:                                            ║"
+          echo "║  1. Open HOME PAGE URL                                     ║"
+          echo "║  2. Enter username/password when prompted                  ║"
+          echo "║  3. You should see 'opencode_workspace' in projects list   ║"
+          echo "║  4. Click to open or use DIRECT PROJECT LINK               ║"
+          echo "║                                                            ║"
+          echo "║  ✅ FULL FEATURES AVAILABLE:                               ║"
+          echo "║  - Sessions management                                     ║"
+          echo "║  - MCP/Skills/Tools/Plugins                                ║"
+          echo "║  - File explorer                                           ║"
+          echo "║  - Code review (side-by-side diffs)                        ║"
+          echo "║  - Agent modes                                             ║"
+          echo "║  - Provider configuration                                  ║"
+          echo "║                                                            ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
           echo ""
           
+          # Keep the workflow running
           while kill -0 $OPENCODE_PID 2>/dev/null; do
             sleep 30
             sync_to_repo
